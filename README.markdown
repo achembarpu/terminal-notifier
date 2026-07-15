@@ -3,7 +3,7 @@
 [![GitHub release](https://img.shields.io/github/release/julienXX/terminal-notifier.svg)](https://github.com/julienXX/terminal-notifier/releases)
 
 terminal-notifier is a command-line tool to send macOS User Notifications,
-which are available on macOS 10.10 and higher.
+which are available on macOS 10.14 and higher.
 
 
 ## News
@@ -17,12 +17,24 @@ Sticking to two smaller specialized tools will hopefully make them easier to mai
 
 ## Caveats
 
-* It is currently packaged as an application bundle, because `NSUserNotification`
-  does not work from a ‘Foundation tool’. [radar://11956694](radar://11956694)
+* It is packaged as an application bundle rather than a plain executable. A
+  notification is attributed to a bundle identity, so a ‘Foundation tool’ has
+  nothing to post as. This was true of `NSUserNotification` and remains true of
+  `UNUserNotificationCenter`. [radar://11956694](radar://11956694)
 
-* If you intend to package terminal-notifier with your app to distribute it on the Mac App Store, please use 1.5.2; version 1.6.0+ uses a private method override, which is not allowed in the App Store Guidelines.
+* As of 3.0.0 terminal-notifier uses only public API. Versions 1.6.0 through
+  2.0.0 relied on a private method override and on swizzling the bundle
+  identifier, neither of which is permitted by the App Store Guidelines and
+  both of which stopped working on modern macOS.
 
-* If you're using macOS < 10.10 you should use terminal-notifier 1.6.3.
+* If you're using macOS < 10.14 you should use terminal-notifier 2.0.0. If
+  you're using macOS < 10.10, use 1.6.3.
+
+* The notification icon always comes from the application bundle. macOS
+  provides no API to override it per notification, so if you want a custom
+  icon you need your own copy of the bundle: duplicate `terminal-notifier.app`,
+  replace `Contents/Resources/Terminal.icns`, adjust `CFBundleIdentifier` in
+  `Contents/Info.plist`, and re-sign it with `codesign --force --sign - YourApp.app`.
 
 * If you're looking for sticky notifications or more actions on a notification please use [alerter](https://github.com/vjeantet/alerter)
 
@@ -62,7 +74,17 @@ $ terminal-notifier -[message|group|list] [VALUE|ID|ID] [options]
 
 This will obviously be a bit slower than using the tool without the wrapper.
 
-If you'd like notifications to stay on the screen until dismissed, go to System Preferences -> Notifications -> terminal-notifier and change the style from Banners to Alerts. You cannot do this on a per-notification basis.
+If you'd like notifications to stay on the screen until dismissed, go to System
+Settings -> Notifications -> terminal-notifier and change the style from Banners
+to Alerts. You cannot do this on a per-notification basis.
+
+If notifications do not appear at all, check that terminal-notifier is allowed to
+send them in System Settings -> Notifications, and that a Focus mode is not
+suppressing them. To make macOS ask for permission again:
+
+```
+$ tccutil reset UserNotification fr.julienxx.oss.terminal-notifier
+```
 
 
 ### Example Uses
@@ -74,12 +96,15 @@ $ echo 'Piped Message Data!' | terminal-notifier -sound default
 
 ![Example 1](assets/Example_1.png)
 
-Use a custom icon:
+Attach an image to the notification:
 ```
-$ terminal-notifier -title ProjectX -subtitle "new tag detected" -message "Finished" -appIcon http://vjeantet.fr/images/logo.png
+$ terminal-notifier -title ProjectX -subtitle "new tag detected" -message "Finished" -contentImage ./logo.png
 ```
 
 ![Example 3](assets/Example_3.png)
+
+To change the *icon* rather than attach an image, see the Caveats section — it
+requires your own copy of the application bundle.
 
 Open an URL when the notification is clicked:
 ```
@@ -184,24 +209,22 @@ Examples application IDs are:
 
 `-sender ID`
 
-Fakes the sender application of the notification. This uses the specified
-application’s icon, and will launch it when the notification is clicked.
+**Removed in 3.0.0.** Accepted but ignored, with a warning.
 
-Using this option fakes the sender application, so that the notification system
-will launch that application when the notification is clicked. Because of this
-it is important to note that you cannot combine this with options like
-`-execute` and `-activate` which depend on the sender of the notification to be
-‘terminal-notifier’ to perform its work.
-
-For information on the `ID`, see the `-activate` option.
+This worked by swizzling terminal-notifier's own bundle identifier at runtime.
+The UserNotifications framework reads the real, signed bundle identity, so
+there is no way to reimplement it. Use `-activate` to bring an application
+forward when the notification is clicked.
 
 -------------------------------------------------------------------------------
 
 `-appIcon PATH`
 
-Specify an image `PATH` to display instead of the application icon.
+**Removed in 3.0.0.** Accepted but ignored, with a warning.
 
-**WARNING: This option is subject to change, since it relies on a private method.**
+`UNNotificationContent` has no icon property at all — the icon always comes from
+the application bundle. See the Caveats section for the custom-bundle
+workaround.
 
 -------------------------------------------------------------------------------
 
@@ -209,7 +232,8 @@ Specify an image `PATH` to display instead of the application icon.
 
 Specify an image `PATH` to attach inside of the notification.
 
-**WARNING: This option is subject to change since it relies on a private method.**
+Local file paths only. Earlier versions accepted remote URLs; the attachment API
+does not, so download the image first if you need this.
 
 -------------------------------------------------------------------------------
 
@@ -228,9 +252,24 @@ Run the shell command `COMMAND` when the user clicks the notification.
 
 `-ignoreDnD`
 
-Ignore Do Not Disturb settings and unconditionally show the notification.
+Request delivery even when Do Not Disturb is enabled. **Best effort only — in
+most builds this does nothing.**
 
-**WARNING: This option is subject to change since it relies on a private method.**
+This previously worked by setting a private ivar. The public equivalent is a
+time-sensitive interruption level, which requires an Apple-granted entitlement
+that the released binary does not carry. The flag is still accepted so existing
+scripts keep working.
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Usage error — no `-message`, `-remove` or `-list` given |
+| 2 | Invalid argument, e.g. a malformed `-open` URL |
+| 3 | Notifications are not authorized for this application |
+| 4 | Timed out — usually no GUI session (over SSH, or launchd as root) |
+| 5 | The notification service refused the request |
 
 ## License
 
