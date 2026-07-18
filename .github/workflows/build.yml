@@ -1,0 +1,62 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: Build (universal)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project "Terminal Notifier.xcodeproj" \
+            -scheme "Terminal Notifier" \
+            -configuration Release \
+            SYMROOT=build \
+            build
+
+      - name: Assert the binary is universal
+        run: |
+          BIN="build/Release/terminal-notifier.app/Contents/MacOS/terminal-notifier"
+          lipo -info "$BIN"
+          for arch in x86_64 arm64; do
+            lipo -info "$BIN" | grep -q "$arch" \
+              || { echo "::error::missing $arch slice — ARCHS regressed"; exit 1; }
+          done
+
+      - name: Assert deployment target is 10.14
+        run: |
+          BIN="build/Release/terminal-notifier.app/Contents/MacOS/terminal-notifier"
+          vtool -show-build "$BIN" | grep -A2 minos
+          otool -l "$BIN" | grep -A4 LC_BUILD_VERSION | grep -q "minos 10.14" \
+            || { echo "::error::unexpected minimum OS version"; exit 1; }
+
+      - name: Assert the app bundle is signed
+        run: |
+          codesign -dv --verbose=4 "build/Release/terminal-notifier.app" 2>&1
+          codesign --verify --strict "build/Release/terminal-notifier.app" \
+            || { echo "::error::app bundle failed signature verification"; exit 1; }
+
+      # Notification *delivery* cannot be tested here: it needs a TCC grant,
+      # and there is no way to grant one non-interactively on a fresh runner.
+      # These two paths exit before touching the notification centre.
+      - name: Smoke test (no delivery)
+        run: |
+          BIN="build/Release/terminal-notifier.app/Contents/MacOS/terminal-notifier"
+          echo "--- -version ---"
+          "$BIN" -version
+          echo "--- -help ---"
+          "$BIN" -help | head -5

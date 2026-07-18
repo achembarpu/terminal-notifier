@@ -1,0 +1,56 @@
+name: ruby
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: Ruby
+
+jobs:
+  spec:
+    name: RSpec (Ruby ${{ matrix.ruby }})
+    # The gem only ever runs on macOS, so test it there rather than on Linux.
+    runs-on: macos-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.2', '3.3', '3.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+          working-directory: Ruby
+
+      # The example tagged :binary is skipped automatically when the vendored
+      # app bundle is absent, so this needs no build step.
+      - name: Run specs
+        run: bundle exec rspec
+
+  gem:
+    name: Build gem
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: Ruby
+
+      # Catches a malformed gemspec or a file list that references something
+      # that isn't there. Does not vendor the binary.
+      - name: Validate the gemspec
+        run: |
+          ruby -e 'spec = Gem::Specification.load("terminal-notifier.gemspec"); \
+                   spec.validate; \
+                   puts "#{spec.name} #{spec.version} ok"'
