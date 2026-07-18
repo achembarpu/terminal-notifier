@@ -7,3 +7,4 @@ Ruby/*.gem
 Ruby/vendor
 build
 .build/
+Ruby/Gemfile.lock

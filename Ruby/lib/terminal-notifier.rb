@@ -1,34 +1,98 @@
-# coding: utf-8
-require 'shellwords'
+# frozen_string_literal: true
+
 require 'rbconfig'
 
+require 'terminal-notifier/version'
+
 module TerminalNotifier
-  BIN_PATH = File.expand_path('../../vendor/terminal-notifier/terminal-notifier.app/Contents/MacOS/terminal-notifier', __FILE__)
+  # Minimum macOS version supported by the bundled binary. UNUserNotificationCenter,
+  # which the tool is built on, is not available before this.
+  MINIMUM_MACOS_VERSION = '10.14'
+
+  # Path to the binary inside the vendored application bundle. Overridable so
+  # that a Homebrew-installed or self-built copy can be used instead.
+  BIN_PATH = ENV.fetch(
+    'TERMINAL_NOTIFIER_BIN',
+    File.expand_path(
+      '../../vendor/terminal-notifier/terminal-notifier.app/Contents/MacOS/terminal-notifier',
+      __FILE__
+    )
+  )
 
   class UnsupportedPlatformError < StandardError; end
-  # Returns wether or not the current platform is macOS 10.10, or higher.
+  class BinaryNotFoundError < StandardError; end
+
+  # Returns whether the current platform is macOS 10.14 or higher.
   def self.available?
-    @available ||= (/darwin|mac os/ =~ RbConfig::CONFIG['host_os']) && Gem::Version.new(version) > Gem::Version.new('10.10')
+    # Memoise with defined? rather than ||=, so that a false result is cached
+    # too and we don't re-shell out on every single call.
+    return @available if defined?(@available)
+
+    @available = macos? && Gem::Version.new(version) >= Gem::Version.new(MINIMUM_MACOS_VERSION)
   end
 
+  # The macOS product version, or nil when not running on macOS.
   def self.version
-    @version ||= `uname`.strip == 'Darwin' && `sw_vers -productVersion`.strip
+    return @version if defined?(@version)
+
+    # Only shell out when we already know this is macOS. RbConfig reports the
+    # Darwin kernel version, which doesn't map cleanly onto product versions,
+    # so sw_vers is still needed for the number itself.
+    @version = macos? ? `sw_vers -productVersion`.strip : nil
   end
 
-  def self.execute(verbose, options)
-    if available?
-      command = [BIN_PATH, *options.map { |k,v| v = v.to_s; ["-#{k}", "#{v[0] == "-" ? " " : ""}#{Shellwords.escape(v[0,1])}#{v[1..-1]}"] }.flatten]
-      command = Shellwords.join(command) if RUBY_VERSION < '1.9'
-      result = ''
-      IO.popen(command) do |stdout|
-        output = stdout.read
-        STDOUT.print output if verbose
-        result << output
-      end
-      result
-    else
-      STDERR.print "terminal-notifier is only supported on macOS 10.10, or higher."
+  def self.macos?
+    return @macos if defined?(@macos)
+
+    @macos = !(RbConfig::CONFIG['host_os'] =~ /darwin|mac os/).nil?
+  end
+
+  # Builds the argument vector for the binary.
+  #
+  # No shell is involved — IO.popen is handed an array — so values must be
+  # passed through verbatim. Escaping them would deliver literal backslashes
+  # as part of the message.
+  def self.command_for(options)
+    arguments = options.flat_map do |key, value|
+      value = value.to_s
+      # A value starting with '-' would otherwise be parsed as the next flag.
+      # The binary strips this leading space back off.
+      ["-#{key}", value.start_with?('-') ? " #{value}" : value]
     end
+    [BIN_PATH, *arguments]
+  end
+
+  # Runs the binary and returns its standard output.
+  #
+  # Raises UnsupportedPlatformError when not on a supported macOS, and
+  # BinaryNotFoundError when the vendored binary is missing.
+  def self.execute(verbose, options)
+    unless available?
+      raise UnsupportedPlatformError,
+            "terminal-notifier is only supported on macOS #{MINIMUM_MACOS_VERSION} or higher."
+    end
+
+    unless File.executable?(BIN_PATH)
+      raise BinaryNotFoundError,
+            "terminal-notifier binary not found at #{BIN_PATH}. " \
+            'Set TERMINAL_NOTIFIER_BIN to point at it.'
+    end
+
+    output = IO.popen(command_for(options)) { |stdout| stdout.read }
+    # Remember the status so callers aren't exposed to races on the global $?.
+    Thread.current[:terminal_notifier_last_status] = $?
+    $stdout.print output if verbose
+    output
+  end
+
+  # The exit status of the most recent execute call on this thread.
+  def self.last_status
+    Thread.current[:terminal_notifier_last_status]
+  end
+
+  def self.succeeded?
+    status = last_status
+    !status.nil? && status.success?
   end
 
   # Cleans up the result of a notification, making it easier to work it
@@ -57,15 +121,18 @@ module TerminalNotifier
     if options[:reply] || options['reply'] || always_string
       result
     else
-      result.length == 0 || result.downcase.gsub(/\W+/,'_').to_sym
+      # Note: an empty result yields `true`, not a symbol, because the `||`
+      # short-circuits. Odd, but it is the long-standing public contract.
+      result.length == 0 || result.downcase.gsub(/\W+/, '_').to_sym
     end
   end
   module_function :notify_result
 
   # Sends a User Notification and returns whether or not it was a success.
   #
-  # The available options are `:title`, `:group`, `:activate`, `:open`,
-  # `:execute`, `:sender`, and `:sound`. For a description of each option see:
+  # The available options are `:title`, `:subtitle`, `:group`, `:activate`,
+  # `:open`, `:execute`, `:contentImage`, and `:sound`. For a description of
+  # each option see:
   #
   #   https://github.com/julienXX/terminal-notifier/blob/master/README.markdown
   #
@@ -77,13 +144,12 @@ module TerminalNotifier
   #   TerminalNotifier.notify('Hello World', :activate => 'com.apple.Safari')
   #   TerminalNotifier.notify('Hello World', :open => 'http://twitter.com/julienXX')
   #   TerminalNotifier.notify('Hello World', :execute => 'say "OMG"')
-  #   TerminalNotifier.notify('Hello World', :sender => 'com.apple.Safari')
   #   TerminalNotifier.notify('Hello World', :sound => 'default')
   #
-  # Raises if not supported on the current platform.
+  # Raises UnsupportedPlatformError if not supported on the current platform.
   def notify(message, options = {}, verbose = false, always_string = false)
     result = TerminalNotifier.execute(verbose, options.merge(:message => message))
-    $? && $?.success? && notify_result(result, options, always_string)
+    TerminalNotifier.succeeded? && notify_result(result, options, always_string)
   end
   module_function :notify
 
@@ -93,7 +159,7 @@ module TerminalNotifier
   # If no ‘group’ ID is given, all notifications are removed.
   def remove(group = 'ALL', verbose = false)
     TerminalNotifier.execute(verbose, :remove => group)
-    $? && $?.success?
+    TerminalNotifier.succeeded?
   end
   module_function :remove
 
@@ -108,13 +174,23 @@ module TerminalNotifier
   # If no information is available this will return `nil`.
   def list(group = 'ALL', verbose = false)
     output = TerminalNotifier.execute(verbose, :list => group)
-    return if output.strip.empty?
+    return if output.nil? || output.strip.empty?
 
     require 'time'
-    notifications = output.split("\n")[1..-1].map do |line|
-      LIST_FIELDS.zip(line.split("\t")).inject({}) do |hash, (key, value)|
-        hash[key] = key == :delivered_at ? Time.parse(value) : (value unless value == '(null)')
-        hash
+    notifications = output.split("\n")[1..-1].to_a.map do |line|
+      LIST_FIELDS.zip(line.split("\t")).each_with_object({}) do |(key, value), hash|
+        hash[key] =
+          if key == :delivered_at
+            begin
+              Time.parse(value.to_s)
+            rescue ArgumentError, TypeError
+              nil
+            end
+          else
+            # 3.0.0 emits an empty field for an absent value; earlier binaries
+            # emitted the literal string "(null)".
+            value unless value.nil? || value.empty? || value == '(null)'
+          end
       end
     end
 

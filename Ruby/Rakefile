@@ -1,38 +1,38 @@
-def version
-  @version ||= begin
-    plist = File.expand_path('../../Terminal Notifier/Terminal Notifier-Info.plist', __FILE__)
-    `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '#{plist}'`.strip
-  end
-end
+# frozen_string_literal: true
 
-def filename
-  "terminal-notifier-#{version}"
-end
+require 'bundler/gem_tasks'
+require 'shellwords'
 
-def zipfile
-  "#{version}.zip"
-end
+APP_NAME   = 'terminal-notifier.app'
+VENDOR_DIR = 'vendor/terminal-notifier'
+BINARY     = "#{VENDOR_DIR}/#{APP_NAME}/Contents/MacOS/terminal-notifier"
 
+desc 'Remove the vendored binary'
 task :clean do
-  rm zipfile
-  rm_rf 'vendor'
+  # Scoped to the vendored app only: `vendor/` is also where `bundle install`
+  # puts gems when a path is configured.
+  rm_rf VENDOR_DIR
+  rm_f Dir.glob('*.gem')
 end
 
-desc 'Fetch latest build from the GitHub releases'
+desc 'Build the application bundle and vendor it into the gem'
 task :update_build do
-  unless File.exist?(zipfile)
-    sh "curl -L -O 'https://github.com/julienXX/terminal-notifier/archive/#{zipfile}'"
+  rm_rf VENDOR_DIR
+  mkdir_p VENDOR_DIR
+
+  sh 'cd .. && xcodebuild -project "Terminal Notifier.xcodeproj" ' \
+     '-scheme "Terminal Notifier" -configuration Release SYMROOT=build build'
+
+  cp_r "../build/Release/#{APP_NAME}", VENDOR_DIR
+  chmod 0o755, BINARY
+
+  # The published gem serves every Mac from a single upload, so a thin binary
+  # here would silently ship an Intel-only or arm-only tool.
+  archs = `lipo -info #{BINARY.shellescape}`
+  %w[x86_64 arm64].each do |arch|
+    raise "vendored binary is missing the #{arch} slice: #{archs}" unless archs.include?(arch)
   end
-
-  rm_rf 'vendor'
-  mkdir 'vendor'
-
-  sh "unzip -o -d vendor #{zipfile}"
-  mv "vendor/#{filename}", 'vendor/terminal-notifier'
-
-  sh 'cd .. && xcodebuild -target terminal-notifier SYMROOT=build -verbose && cd -'
-  mv '../build/Release/terminal-notifier.app', 'vendor/terminal-notifier/'
-  chmod 0755, 'vendor/terminal-notifier/terminal-notifier.app/Contents/MacOS/terminal-notifier'
+  puts "vendored #{archs.strip}"
 end
 
 desc 'Build gem'
@@ -42,7 +42,7 @@ end
 
 desc 'Run specs'
 task :spec do
-  sh 'bundle exec ruby spec/terminal-notifier_spec.rb'
+  sh 'bundle exec rspec'
 end
 
 task :default => :spec

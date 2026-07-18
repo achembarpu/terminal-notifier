@@ -1,26 +1,46 @@
-# -*- encoding: utf-8 -*-
-plist = File.expand_path('../../Terminal Notifier/Terminal Notifier-Info.plist', __FILE__)
-# Also run on non-OSX machines, otherwise bundle installs directly from the repo will fail.
-# version = `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '#{plist}'`.strip
-version = File.read(plist).match(%r{<string>(\d+\.\d+\.\d+)</string>})[1]
+# frozen_string_literal: true
 
+require File.expand_path('lib/terminal-notifier/version', __dir__)
 
 Gem::Specification.new do |gem|
-  gem.name             = "terminal-notifier"
-  gem.version          = version
-  gem.summary          = 'Send User Notifications on macOS 10.10 or higher.'
-  gem.authors          = ["Eloy Duran", "Julien Blanchard"]
-  gem.email            = ["eloy.de.enige@gmail.com", "julien@sideburns.eu"]
-  gem.homepage         = 'https://github.com/julienXX/terminal-notifier'
-  gem.license          = 'MIT'
+  gem.name        = 'terminal-notifier'
+  gem.version     = TerminalNotifier::VERSION
+  gem.summary     = 'Send User Notifications on macOS 10.14 or higher.'
+  gem.description = <<~DESC
+    terminal-notifier is a command-line tool to send macOS User Notifications.
+    This gem wraps the tool and ships the application bundle it needs, so that
+    notifications can be posted from Ruby without any extra installation.
+  DESC
+  gem.authors  = ['Eloy Duran', 'Julien Blanchard']
+  gem.email    = ['eloy.de.enige@gmail.com', 'julien@sideburns.eu']
+  gem.homepage = 'https://github.com/julienXX/terminal-notifier'
+  gem.license  = 'MIT'
 
-  gem.executables      = ['terminal-notifier']
-  gem.files            = ['bin/terminal-notifier', 'lib/terminal-notifier.rb'] + Dir.glob('vendor/terminal-notifier/**/*')
-  gem.require_paths    = ['lib']
+  gem.required_ruby_version = '>= 3.2'
+
+  gem.metadata = {
+    'source_code_uri'       => gem.homepage,
+    'bug_tracker_uri'       => "#{gem.homepage}/issues",
+    'changelog_uri'         => "#{gem.homepage}/releases",
+    'rubygems_mfa_required' => 'true'
+  }
+
+  gem.executables   = ['terminal-notifier']
+  gem.require_paths = ['lib']
+
+  # The vendored application bundle is deliberately gitignored (it is a build
+  # artifact produced by `rake update_build`), so the file list cannot come
+  # from `git ls-files`.
+  gem.files = [
+    'bin/terminal-notifier',
+    'lib/terminal-notifier.rb',
+    'lib/terminal-notifier/version.rb',
+    'lib/terminal-notifier/cli.rb',
+    'README.markdown',
+    'LICENSE'
+  ] + Dir.glob('vendor/terminal-notifier/**/*', base: __dir__).select do |path|
+    File.file?(File.join(__dir__, path))
+  end
 
   gem.extra_rdoc_files = ['README.markdown']
-
-  gem.add_development_dependency 'bacon'
-  gem.add_development_dependency 'mocha'
-  gem.add_development_dependency 'mocha-on-bacon'
 end

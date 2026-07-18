@@ -2,7 +2,9 @@
 
 A simple Ruby wrapper around the [`terminal-notifier`][HOMEPAGE] command-line
 tool, which allows you to send User Notifications to the Notification Center on
-macOS 10.10, or higher.
+macOS 10.14, or higher.
+
+Requires Ruby 3.2 or newer.
 
 
 ## Installation
@@ -25,14 +27,43 @@ TerminalNotifier.notify('Hello World', :activate => 'com.apple.Safari')
 TerminalNotifier.notify('Hello World', :open => 'http://twitter.com/julienXX')
 TerminalNotifier.notify('Hello World', :execute => 'say "OMG"')
 TerminalNotifier.notify('Hello World', :group => Process.pid)
-TerminalNotifier.notify('Hello World', :sender => 'com.apple.Safari')
 TerminalNotifier.notify('Hello World', :sound => 'default')
+TerminalNotifier.notify('Hello World', :contentImage => './logo.png')
 
 TerminalNotifier.remove(Process.pid)
 
 TerminalNotifier.list(Process.pid)
 TerminalNotifier.list
 ```
+
+`:sender` and `:appIcon` were removed in 3.0.0. They are still accepted, but the
+tool ignores them and warns on stderr — see the main [README][README].
+
+
+## Return values
+
+`notify` and `remove` return whether the command succeeded. `list` returns a
+hash (or an array of hashes for the default `'ALL'` group) with the keys
+`:group`, `:title`, `:subtitle`, `:message` and `:delivered_at`; absent fields
+are `nil`. It returns `nil` when there is nothing to report.
+
+Both raise `TerminalNotifier::UnsupportedPlatformError` when run on anything
+other than a supported macOS, and `TerminalNotifier::BinaryNotFoundError` when
+the bundled binary is missing.
+
+Set `TERMINAL_NOTIFIER_BIN` to use a binary other than the bundled one.
+
+
+## Development
+
+```
+$ cd Ruby
+$ bundle install
+$ bundle exec rspec
+```
+
+One example needs the compiled application bundle and is skipped without it.
+Build and vendor it with `bundle exec rake update_build`, which requires Xcode.
 
 
 ## License
