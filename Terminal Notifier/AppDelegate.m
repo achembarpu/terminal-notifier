@@ -166,9 +166,19 @@ static void TNError(NSString *format, ...)
 
   // If there is no message and data is piped to the application, use that
   // instead.
-  if (message == nil && !isatty(STDIN_FILENO)) {
+  //
+  // Only when a message is actually needed: this read blocks until stdin sees
+  // EOF, and because it runs on the main thread it also blocks the watchdog.
+  // `-list`/`-remove` don't need a message, and reading stdin for them would
+  // hang indefinitely whenever stdin is a pipe that stays open.
+  if (message == nil && remove == nil && list == nil && !isatty(STDIN_FILENO)) {
     NSData *inputData = [[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile];
     message = [[NSString alloc] initWithData:inputData encoding:NSUTF8StringEncoding];
+    // Drop the trailing newline a pipe almost always carries. Left in, it ends
+    // up inside the body and splits the tab-separated -list row in two.
+    while ([message hasSuffix:@"\n"] || [message hasSuffix:@"\r"]) {
+      message = [message substringToIndex:message.length - 1];
+    }
   }
 
   if (message == nil && remove == nil && list == nil) {
