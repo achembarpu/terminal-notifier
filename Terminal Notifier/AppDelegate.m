@@ -15,6 +15,12 @@ static const int TNExitDeliveryFailed = 5;
 // forever with no output at all.
 static const NSTimeInterval TNTimeoutSeconds = 10.0;
 
+// When the user clicks a notification, macOS relaunches this bundle with no
+// arguments and delivers the response *after* applicationDidFinishLaunching
+// returns. Verified on macOS 26. So an argument-less launch has to linger
+// briefly instead of exiting, or -open/-execute/-activate never run.
+static const NSTimeInterval TNResponseGraceSeconds = 5.0;
+
 // Diagnostics go to stderr so that whoever ran the command actually sees them.
 // NSLog is reserved for the click-activation audit trail, which the README
 // documents as being readable in Console.app.
@@ -231,10 +237,25 @@ static void TNError(NSString *format, ...)
                               message:message
                               options:options
                                 sound:sound];
+  } else if (arguments.count == 1) {
+    // Nothing to do and nothing on the command line. An interactive run with
+    // no arguments has already exited above (stdin is a tty then), so reaching
+    // here most likely means macOS relaunched us to deliver a click.
+    [self waitForNotificationResponse];
   } else {
     [self printHelpBanner];
     exit(TNExitUsage);
   }
+}
+
+- (void)waitForNotificationResponse;
+{
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TNResponseGraceSeconds * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), ^{
+    if (self.launchedFromNotification) return; // handled; that path exits itself
+    [self printHelpBanner];
+    exit(TNExitUsage);
+  });
 }
 
 - (NSURL *)localFileURLFromString:(NSString *)urlString;
