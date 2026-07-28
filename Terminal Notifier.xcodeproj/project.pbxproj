@@ -253,6 +253,7 @@
 				CODE_SIGN_STYLE = Manual;
 				INFOPLIST_FILE = "Terminal Notifier/Terminal Notifier-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = "fr.julienxx.oss.terminal-notifier";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				WRAPPER_EXTENSION = app;
@@ -268,6 +269,7 @@
 				CODE_SIGN_STYLE = Manual;
 				INFOPLIST_FILE = "Terminal Notifier/Terminal Notifier-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = "fr.julienxx.oss.terminal-notifier";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				WRAPPER_EXTENSION = app;
