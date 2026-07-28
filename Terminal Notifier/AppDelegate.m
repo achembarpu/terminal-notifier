@@ -164,6 +164,17 @@ static void TNError(NSString *format, ...)
   NSString *sound    = defaults[@"sound"];
   NSString *title    = defaults[@"title"] ?: @"Terminal";
 
+  // A -message that NSUserDefaults could not parse arrives as nil, which is
+  // indistinguishable from "no -message given" unless we look at argv. Falling
+  // through to the stdin read below would then block forever on an open pipe,
+  // which is exactly what the Ruby wrapper hands us.
+  if (message == nil && [arguments containsObject:@"-message"]) {
+    TNError(@"Could not read the -message value.");
+    TNError(@"If it begins with a character such as '[', '(', '{' or a quote, escape it:");
+    TNError(@"  -message '\\[like this'");
+    exit(TNExitBadArgument);
+  }
+
   // If there is no message and data is piped to the application, use that
   // instead.
   //
