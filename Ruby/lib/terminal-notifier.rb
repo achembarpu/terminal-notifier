@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'rbconfig'
+require 'shellwords'
 
 require 'terminal-notifier/version'
 
@@ -48,18 +49,33 @@ module TerminalNotifier
   end
 
   # Builds the argument vector for the binary.
-  #
-  # No shell is involved — IO.popen is handed an array — so values must be
-  # passed through verbatim. Escaping them would deliver literal backslashes
-  # as part of the message.
   def self.command_for(options)
     arguments = options.flat_map do |key, value|
-      value = value.to_s
-      # A value starting with '-' would otherwise be parsed as the next flag.
-      # The binary strips this leading space back off.
-      ["-#{key}", value.start_with?('-') ? " #{value}" : value]
+      ["-#{key}", escape_value(value.to_s)]
     end
     [BIN_PATH, *arguments]
+  end
+
+  # Prepares a single option value for the binary.
+  #
+  # This is *not* shell escaping — IO.popen is handed an argv array, so no shell
+  # is ever involved. It is the escaping the tool's own README documents as
+  # ‘\[’: the binary reads its arguments through NSUserDefaults, which tries to
+  # parse each value as a property list, so a value beginning with '[', '(',
+  # '{', a quote, a space and so on comes back as nil and the notification is
+  # never sent. Prefixing a backslash makes NSUserDefaults treat it as a plain
+  # string, and the binary strips that backslash again (see
+  # objectForKeyedSubscript: in AppDelegate.m).
+  #
+  # Shellwords.escape is used purely as a convenient test of "would this
+  # character be taken as syntax", which is the same set that matters here.
+  def self.escape_value(value)
+    return value if value.empty?
+
+    # A value starting with '-' would be read as the next flag; the binary
+    # strips this leading space back off.
+    prefix = value.start_with?('-') ? ' ' : ''
+    "#{prefix}#{Shellwords.escape(value[0, 1])}#{value[1..]}"
   end
 
   # Runs the binary and returns its standard output.

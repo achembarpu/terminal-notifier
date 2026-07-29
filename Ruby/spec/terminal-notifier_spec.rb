@@ -15,11 +15,17 @@ RSpec.describe TerminalNotifier do
   end
 
   describe '.command_for' do
-    it 'passes values through verbatim rather than escaping them' do
-      # Regression test for #314: the old implementation escaped only the first
-      # character, delivering a literal backslash as part of the message.
+    it 'backslash-escapes a first character NSUserDefaults would misparse' do
+      # Not shell escaping (IO.popen gets an argv array). Without the backslash
+      # the binary's NSUserDefaults parse yields nil and nothing is sent; the
+      # binary strips the backslash again. This is the README's ‘\[’ escaping.
       expect(described_class.command_for(:message => '[ZOMG] "OH YEAH"'))
-        .to eq [TerminalNotifier::BIN_PATH, '-message', '[ZOMG] "OH YEAH"']
+        .to eq [TerminalNotifier::BIN_PATH, '-message', '\\[ZOMG] "OH YEAH"']
+    end
+
+    it 'leaves an ordinary first character alone' do
+      expect(described_class.command_for(:message => 'plain message'))
+        .to eq [TerminalNotifier::BIN_PATH, '-message', 'plain message']
     end
 
     it 'prefixes a space to values starting with a dash' do
@@ -29,6 +35,11 @@ RSpec.describe TerminalNotifier do
 
     it 'passes an empty value as an empty argument' do
       expect(described_class.command_for('help' => '')).to eq [TerminalNotifier::BIN_PATH, '-help', '']
+    end
+
+    it 'escapes a leading quote too' do
+      expect(described_class.command_for(:message => %q{"quoted"}))
+        .to eq [TerminalNotifier::BIN_PATH, '-message', %q{\\"quoted"}]
     end
 
     it 'stringifies non-string values' do
