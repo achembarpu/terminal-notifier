@@ -44,6 +44,21 @@ static void TNError(NSString *format, ...)
 }
 @end
 
+// -list output is tab separated and newline delimited, so a tab or newline
+// inside a title or message silently corrupts the whole table. Collapse them to
+// spaces: one row per notification matters more than reproducing the text byte
+// for byte.
+static NSString *TNSanitizeField(NSString *value)
+{
+  if (value == nil) return @"";
+
+  NSString *result = value;
+  for (NSString *character in @[@"\t", @"\n", @"\r"]) {
+    result = [result stringByReplacingOccurrencesOfString:character withString:@" "];
+  }
+  return result;
+}
+
 static NSString *TNAuthorizationStatusName(UNAuthorizationStatus status)
 {
   switch (status) {
@@ -620,11 +635,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
       // Empty fields rather than "(null)", so the output stays parseable.
       [lines addObject:[NSString stringWithFormat:@"%@\t%@\t%@\t%@\t%@",
-                        deliveredGroupID ?: @"",
-                        content.title ?: @"",
-                        content.subtitle ?: @"",
-                        content.body ?: @"",
-                        [notification.date description]]];
+                        TNSanitizeField(deliveredGroupID),
+                        TNSanitizeField(content.title),
+                        TNSanitizeField(content.subtitle),
+                        TNSanitizeField(content.body),
+                        TNSanitizeField([notification.date description])]];
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
