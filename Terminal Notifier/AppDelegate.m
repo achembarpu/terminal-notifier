@@ -44,6 +44,47 @@ static void TNError(NSString *format, ...)
 }
 @end
 
+static NSString *TNAuthorizationStatusName(UNAuthorizationStatus status)
+{
+  switch (status) {
+    case UNAuthorizationStatusNotDetermined: return @"not requested yet";
+    case UNAuthorizationStatusDenied:        return @"denied";
+    case UNAuthorizationStatusAuthorized:    return @"authorized";
+    case UNAuthorizationStatusProvisional:   return @"provisional";
+    default:                                 return @"unknown";
+  }
+}
+
+static NSString *TNSettingName(UNNotificationSetting setting)
+{
+  switch (setting) {
+    case UNNotificationSettingNotSupported: return @"not supported";
+    case UNNotificationSettingDisabled:     return @"disabled";
+    case UNNotificationSettingEnabled:      return @"enabled";
+    default:                                return @"unknown";
+  }
+}
+
+static NSString *TNAlertStyleName(UNAlertStyle style)
+{
+  switch (style) {
+    case UNAlertStyleNone:   return @"none";
+    case UNAlertStyleBanner: return @"banners";
+    case UNAlertStyleAlert:  return @"alerts (stay until dismissed)";
+    default:                 return @"unknown";
+  }
+}
+
+static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
+{
+  switch (setting) {
+    case UNShowPreviewsSettingAlways:           return @"always";
+    case UNShowPreviewsSettingWhenAuthenticated: return @"when unlocked";
+    case UNShowPreviewsSettingNever:            return @"never";
+    default:                                    return @"unknown";
+  }
+}
+
 @interface AppDelegate ()
 @property (nonatomic) BOOL launchedFromNotification;
 @property (nonatomic) BOOL awaitingAuthorization;
@@ -63,6 +104,7 @@ static void TNError(NSString *format, ...)
          "\n" \
          "       -help              Display this help banner.\n" \
          "       -version           Display terminal-notifier version.\n" \
+         "       -diagnose          Report why notifications may not be appearing, and exit.\n" \
          "       -message VALUE     The notification message.\n" \
          "       -remove ID         Removes a notification with the specified ‘group’ ID.\n" \
          "       -list ID           If the specified ‘group’ ID exists show when it was delivered,\n" \
@@ -110,6 +152,100 @@ static void TNError(NSString *format, ...)
   printf("%s %s.\n", appName, appVersion);
 }
 
+// Reports everything that decides whether a notification actually shows up.
+// Most "terminal-notifier stopped working" reports come down to one of these
+// rows, and none of them were previously observable from the command line.
+- (void)printDiagnostics;
+{
+  NSBundle *bundle = [NSBundle mainBundle];
+
+  printf("terminal-notifier %s\n",
+         [[bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] UTF8String]);
+  printf("  bundle id           %s\n", [[bundle bundleIdentifier] UTF8String]);
+  printf("  bundle path         %s\n", [[bundle bundlePath] UTF8String]);
+  printf("  macOS               %s\n",
+         [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String]);
+
+  // A notification is attributed to a bundle identity, so an unsigned or
+  // relocated bundle is a common cause of silent failure.
+  BOOL notificationCentreRunning = NO;
+  for (NSRunningApplication *app in [[NSWorkspace sharedWorkspace] runningApplications]) {
+    if ([app.bundleIdentifier isEqualToString:@"com.apple.notificationcenterui"]) {
+      notificationCentreRunning = YES;
+      break;
+    }
+  }
+  printf("  NotificationCenter  %s\n", notificationCentreRunning ? "running" : "NOT RUNNING");
+
+  UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+  [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      printf("\n");
+      printf("  authorization       %s\n", [TNAuthorizationStatusName(settings.authorizationStatus) UTF8String]);
+      printf("  alerts              %s\n", [TNSettingName(settings.alertSetting) UTF8String]);
+      printf("  alert style         %s\n", [TNAlertStyleName(settings.alertStyle) UTF8String]);
+      printf("  sounds              %s\n", [TNSettingName(settings.soundSetting) UTF8String]);
+      printf("  notification centre %s\n", [TNSettingName(settings.notificationCenterSetting) UTF8String]);
+      printf("  lock screen         %s\n", [TNSettingName(settings.lockScreenSetting) UTF8String]);
+      printf("  previews            %s\n", [TNPreviewsName(settings.showPreviewsSetting) UTF8String]);
+      printf("  critical alerts     %s\n", [TNSettingName(settings.criticalAlertSetting) UTF8String]);
+
+      if (@available(macOS 12.0, *)) {
+        printf("  time sensitive      %s\n", [TNSettingName(settings.timeSensitiveSetting) UTF8String]);
+        // This is Scheduled Summary: notifications are held back and delivered
+        // in a digest, which looks exactly like nothing happening.
+        printf("  scheduled delivery  %s\n", [TNSettingName(settings.scheduledDeliverySetting) UTF8String]);
+      }
+
+      // Turn the rows above into advice, so a user does not have to know which
+      // ones matter.
+      NSMutableArray<NSString *> *problems = [NSMutableArray array];
+      if (settings.authorizationStatus == UNAuthorizationStatusDenied) {
+        [problems addObject:[NSString stringWithFormat:
+          @"Notifications are turned off. Enable them in System Settings > Notifications,\n"
+           "    or reset the permission with:\n"
+           "      tccutil reset UserNotification %@\n"
+           "    (the app bundle must still be installed for that command to resolve)",
+          [bundle bundleIdentifier]]];
+      }
+      if (settings.authorizationStatus == UNAuthorizationStatusNotDetermined) {
+        [problems addObject:@"Permission has never been requested. Send one notification and approve the prompt."];
+      }
+      if (settings.alertSetting == UNNotificationSettingDisabled) {
+        [problems addObject:@"Alerts are disabled, so nothing will be shown on screen."];
+      }
+      if (settings.alertStyle == UNAlertStyleNone) {
+        [problems addObject:@"Alert style is None. Set it to Banners or Alerts in System Settings > Notifications."];
+      }
+      if (settings.soundSetting == UNNotificationSettingDisabled) {
+        [problems addObject:@"Sounds are disabled, so -sound will be silent."];
+      }
+      if (!notificationCentreRunning) {
+        [problems addObject:@"NotificationCenter is not running. Try: killall NotificationCenter"];
+      }
+      if (@available(macOS 12.0, *)) {
+        if (settings.scheduledDeliverySetting == UNNotificationSettingEnabled) {
+          [problems addObject:@"Scheduled Summary is on, so notifications may be held back for a digest."];
+        }
+      }
+
+      printf("\n");
+      if (problems.count == 0) {
+        printf("No problems found.\n");
+      } else {
+        printf("Problems found:\n");
+        for (NSString *problem in problems) {
+          printf("  - %s\n", [problem UTF8String]);
+        }
+      }
+
+      exit(settings.authorizationStatus == UNAuthorizationStatusAuthorized ||
+           settings.authorizationStatus == UNAuthorizationStatusProvisional
+             ? TNExitSuccess : TNExitNotAuthorized);
+    });
+  }];
+}
+
 - (void)applicationWillFinishLaunching:(NSNotification *)notification;
 {
   // Set the delegate before the app finishes launching, so that a response
@@ -149,6 +285,11 @@ static void TNError(NSString *format, ...)
   if ([arguments containsObject:@"-version"]) {
     [self printVersion];
     exit(TNExitSuccess);
+  }
+
+  if ([arguments containsObject:@"-diagnose"] || [arguments containsObject:@"--diagnose"]) {
+    [self printDiagnostics];
+    return; // exits from the completion handler
   }
 
   // We were launched by a notification click; the delegate callback handles
@@ -416,6 +557,13 @@ static void TNError(NSString *format, ...)
     [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
       if (error) {
         TNError(@"Failed to deliver notification: %@", error.localizedDescription);
+        // Distinguish "you are not allowed" from "the request was bad", so a
+        // caller can tell a permissions problem from a broken argument.
+        if ([error.domain isEqualToString:UNErrorDomain] &&
+            error.code == UNErrorCodeNotificationsNotAllowed) {
+          TNError(@"Run with -diagnose to see why.");
+          exit(TNExitNotAuthorized);
+        }
         exit(TNExitDeliveryFailed);
       }
       // The request is handed off and persisted at this point; presentation and
