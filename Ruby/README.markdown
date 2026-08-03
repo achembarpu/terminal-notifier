@@ -40,6 +40,23 @@ TerminalNotifier.list
 tool ignores them and warns on stderr — see the main [README][README].
 
 
+## Asking a question
+
+`:action` and `:reply` wait for the user and return what they chose. An option
+whose value is `true` is passed as a bare flag.
+
+```ruby
+TerminalNotifier.notify('Deploy to production?', :action => 'Yes,No', :timeout => 30)
+#=> :yes            (or :no, :_actionclicked, :_closed, :_timeout)
+
+TerminalNotifier.notify("What's your name?", :reply => true, :timeout => 30)
+#=> "Alice"         (a String, because :reply was given)
+```
+
+Action results come back symbolised by `notify_result`; a `:reply` result is
+returned as the raw string.
+
+
 ## Return values
 
 `notify` and `remove` return whether the command succeeded. `list` returns a

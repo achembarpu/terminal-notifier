@@ -8,11 +8,20 @@ which are available on macOS 10.14 and higher.
 
 ## News
 
-[alerter](https://github.com/vjeantet/alerter) features were merged in terminal-notifier 1.7. This led to some issues and even more issues in the 1.8 release. We decided with [Valère Jeantet](https://github.com/vjeantet) to rollback this merge.
+**3.0.0** moves off the deprecated `NSUserNotification` API onto
+`UNUserNotificationCenter`, ships a universal (Intel + Apple silicon) binary,
+and raises the minimum macOS to 10.14.
 
-From now on terminal-notifier won't have the sticky notification feature nor the actions buttons. If you need them please use [alerter](https://github.com/vjeantet/alerter). I also want to follow [semver](http://semver.org) hence this latest version starts at 2.0.0.
+Action buttons and inline replies are back, as `-action` and `-reply`. They were
+removed in 2.0.0 because the 1.7 implementation depended on private API; the
+`UserNotifications` framework supports them properly, so they no longer do.
 
-Sticking to two smaller specialized tools will hopefully make them easier to maintain and less error prone.
+`-sender`, `-appIcon` and `-ignoreDnD` are gone — they relied on private API and
+on swizzling the bundle identifier, none of which is possible any more. They are
+still accepted so existing scripts keep running, but they warn and do nothing.
+See the Options section for details.
+
+New `-diagnose` reports why a notification is not appearing.
 
 
 ## Caveats
@@ -36,7 +45,11 @@ Sticking to two smaller specialized tools will hopefully make them easier to mai
   replace `Contents/Resources/Terminal.icns`, adjust `CFBundleIdentifier` in
   `Contents/Info.plist`, and re-sign it with `codesign --force --sign - YourApp.app`.
 
-* If you're looking for sticky notifications or more actions on a notification please use [alerter](https://github.com/vjeantet/alerter)
+* Notifications stay on screen until dismissed only if you set the style to
+  Alerts in System Settings; that is a per-application user setting and cannot
+  be chosen per notification. [alerter](https://github.com/vjeantet/alerter)
+  remains a good alternative if you want a tool designed entirely around
+  waiting for a response.
 
 ## Download
 
@@ -112,6 +125,15 @@ $ terminal-notifier -title '💰' -message 'Check your Apple stock!' -open 'http
 ```
 
 ![Example 4](assets/Example_4.png)
+
+Ask a question and branch on the answer:
+```
+$ case "$(terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30)" in
+    Yes)      echo "deploying" ;;
+    No)       echo "cancelled" ;;
+    @TIMEOUT) echo "no answer"  ;;
+  esac
+```
 
 Open an app when the notification is clicked:
 ```
@@ -207,6 +229,70 @@ Examples application IDs are:
 
 -------------------------------------------------------------------------------
 
+`-action TITLE`
+
+Add an action button labelled `TITLE`. Pass a comma separated list, or repeat
+the option, for several buttons.
+
+Unlike every other option, this **waits** for the user: the tool stays running
+until the notification is answered, then prints the title of the button that was
+clicked on stdout. That is what lets a script branch on the answer, and it is
+why `-timeout` exists.
+
+```
+$ terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30
+Yes
+```
+
+macOS shows the buttons when you hover over the notification (or immediately, if
+you have set the style to Alerts).
+
+Output is one of the button titles, or:
+
+* `@ACTIONCLICKED` — the notification body was clicked rather than a button
+* `@CLOSED` — the notification was dismissed
+* `@TIMEOUT` — `-timeout` expired (exit code 6)
+
+-------------------------------------------------------------------------------
+
+`-reply [PROMPT]`
+
+Add a text field to the notification, optionally with `PROMPT` as placeholder
+text. Waits like `-action` and prints what was typed.
+
+```
+$ terminal-notifier -message "What's your name?" -reply 'type here'
+Alice
+```
+
+-------------------------------------------------------------------------------
+
+`-timeout SECONDS`
+
+How long to wait for a response to `-action` or `-reply`. Without it the tool
+waits indefinitely. On expiry it prints `@TIMEOUT` and exits 6.
+
+Has no effect without `-action` or `-reply`, since every other mode returns
+immediately.
+
+-------------------------------------------------------------------------------
+
+`-diagnose`
+
+Report everything that determines whether a notification will appear —
+authorization status, alert style, sound and preview settings, whether
+NotificationCenter is running, and whether Scheduled Summary is holding
+notifications back — then exit. Exits non-zero if notifications are not
+authorized.
+
+```
+$ terminal-notifier -diagnose
+```
+
+Start here if notifications silently fail to show up.
+
+-------------------------------------------------------------------------------
+
 `-sender ID`
 
 **Removed in 3.0.0.** Accepted but ignored, with a warning.
@@ -270,6 +356,7 @@ scripts keep working.
 | 3 | Notifications are not authorized for this application |
 | 4 | Timed out — usually no GUI session (over SSH, or launchd as root) |
 | 5 | The notification service refused the request |
+| 6 | `-timeout` expired waiting for `-action` or `-reply` |
 
 ## License
 
