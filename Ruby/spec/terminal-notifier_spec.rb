@@ -46,6 +46,16 @@ RSpec.describe TerminalNotifier do
       expect(described_class.command_for(:group => 1234))
         .to eq [TerminalNotifier::BIN_PATH, '-group', '1234']
     end
+
+    it 'emits a bare flag for a true value' do
+      expect(described_class.command_for(:reply => true))
+        .to eq [TerminalNotifier::BIN_PATH, '-reply']
+    end
+
+    it 'omits an option whose value is false or nil' do
+      expect(described_class.command_for(:reply => false, :ignoreDnD => nil))
+        .to eq [TerminalNotifier::BIN_PATH]
+    end
   end
 
   describe '.execute' do
@@ -167,6 +177,11 @@ RSpec.describe TerminalNotifier do
 
     it 'returns the raw string when always_string is set' do
       expect(described_class.notify_result('@timeout', {}, true)).to eq '@timeout'
+    end
+
+    it 'strips the trailing newline the binary emits' do
+      expect(described_class.notify_result("Ship\n", {})).to eq :ship
+      expect(described_class.notify_result("blue\n", :reply => true)).to eq 'blue'
     end
 
     it 'returns true for an empty result' do

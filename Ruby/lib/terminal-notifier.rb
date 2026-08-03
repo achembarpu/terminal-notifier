@@ -49,9 +49,17 @@ module TerminalNotifier
   end
 
   # Builds the argument vector for the binary.
+  #
+  # A value of `true` becomes a bare flag and `false` omits the option entirely,
+  # so switches like :reply and :ignoreDnD don't end up with a stray "true" as
+  # their value (which -reply would show as its placeholder text).
   def self.command_for(options)
     arguments = options.flat_map do |key, value|
-      ["-#{key}", escape_value(value.to_s)]
+      case value
+      when true  then ["-#{key}"]
+      when false, nil then []
+      else ["-#{key}", escape_value(value.to_s)]
+      end
     end
     [BIN_PATH, *arguments]
   end
@@ -134,6 +142,11 @@ module TerminalNotifier
   # notify_result('@timeout', {'reply' => true}) #=> '@timeout'
   # notify_result('I may like pie', {}) #=> :i_may_like_pie
   def notify_result(result, options, always_string = false)
+    # The binary terminates its response with a newline. Left on, a reply comes
+    # back as "text\n" and an action title symbolises to :title_ because the
+    # newline is a non-word character.
+    result = result.to_s.chomp
+
     if options[:reply] || options['reply'] || always_string
       result
     else
