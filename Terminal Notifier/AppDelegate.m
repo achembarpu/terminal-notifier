@@ -9,11 +9,21 @@ static const int TNExitBadArgument    = 2;
 static const int TNExitNotAuthorized  = 3;
 static const int TNExitTimeout        = 4;
 static const int TNExitDeliveryFailed = 5;
+static const int TNExitNoResponse     = 6;
 
 // Nothing in this tool should ever take this long. Without a watchdog an
 // invocation with no GUI session (over SSH, or from launchd as root) hangs
 // forever with no output at all.
 static const NSTimeInterval TNTimeoutSeconds = 10.0;
+
+// Printed on stdout when an interactive notification resolves, so a caller can
+// branch on the outcome. These spellings match what the 1.7-era builds and
+// alerter emit, which is what TerminalNotifier.notify_result already parses.
+static NSString * const TNResponseTimeout   = @"@TIMEOUT";
+static NSString * const TNResponseClosed    = @"@CLOSED";
+static NSString * const TNResponseClicked   = @"@ACTIONCLICKED";
+static NSString * const TNCategoryIdentifier = @"fr.julienxx.oss.terminal-notifier.actions";
+static NSString * const TNReplyActionIdentifier = @"reply";
 
 // When the user clicks a notification, macOS relaunches this bundle with no
 // arguments and delivers the response *after* applicationDidFinishLaunching
@@ -103,6 +113,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 @interface AppDelegate ()
 @property (nonatomic) BOOL launchedFromNotification;
 @property (nonatomic) BOOL awaitingAuthorization;
+@property (nonatomic) BOOL awaitingResponse;
 @end
 
 @implementation AppDelegate
@@ -138,6 +149,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
          "       -contentImage PATH The path of an image to attach to the notification. Local files only.\n" \
          "       -open URL          The URL of a resource to open when the user clicks the notification.\n" \
          "       -execute COMMAND   A shell command to perform when the user clicks the notification.\n" \
+         "       -action TITLE      Add an action button. Repeat the option, or pass a comma separated\n" \
+         "                          list, for several. Waits for a response and prints the chosen title.\n" \
+         "       -reply [PROMPT]    Add a text field to the notification. Waits and prints what was typed.\n" \
+         "       -timeout SECONDS   How long to wait for a response to -action or -reply. Defaults to\n" \
+         "                          waiting indefinitely. Prints @TIMEOUT and exits 6 if it expires.\n" \
          "       -ignoreDnD         Request delivery even when Do Not Disturb is enabled. Best effort only:\n" \
          "                          this needs an Apple-granted entitlement that this build does not carry,\n" \
          "                          so it is usually a no-op. See the README.\n" \
@@ -277,7 +293,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 {
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TNTimeoutSeconds * NSEC_PER_SEC)),
                  dispatch_get_main_queue(), ^{
-    if (self.awaitingAuthorization) {
+    if (self.awaitingAuthorization || self.awaitingResponse) {
       [self armWatchdog];
       return;
     }
@@ -391,6 +407,38 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     options[@"ignoreDnD"] = @YES;
   }
 
+  // Action button titles: -action may be repeated, and each value may itself be
+  // a comma separated list.
+  NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
+  for (NSUInteger i = 0; i + 1 < arguments.count; i++) {
+    if (![arguments[i] isEqualToString:@"-action"]) continue;
+    for (NSString *title in [arguments[i + 1] componentsSeparatedByString:@","]) {
+      NSString *trimmed = [title stringByTrimmingCharactersInSet:
+                             [NSCharacterSet whitespaceCharacterSet]];
+      if (trimmed.length > 0) [actionTitles addObject:trimmed];
+    }
+  }
+  if (actionTitles.count > 0) options[@"actions"] = actionTitles;
+
+  // -reply works with or without a placeholder, so it is detected in argv
+  // rather than through NSUserDefaults.
+  if ([arguments containsObject:@"-reply"]) {
+    options[@"reply"] = @YES;
+    NSString *placeholder = defaults[@"reply"];
+    if (placeholder != nil && ![placeholder hasPrefix:@"-"]) {
+      options[@"replyPlaceholder"] = placeholder;
+    }
+  }
+
+  if (defaults[@"timeout"]) {
+    NSTimeInterval seconds = [defaults[@"timeout"] doubleValue];
+    if (seconds <= 0) {
+      TNError(@"-timeout expects a positive number of seconds.");
+      exit(TNExitBadArgument);
+    }
+    options[@"timeout"] = @(seconds);
+  }
+
   BOOL hasMessage = (message != nil && message.length > 0);
 
   if (remove) {
@@ -498,6 +546,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
                                sound:(NSString *)sound;
 {
   [self withAuthorization:^{
+    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
     content.title = title;
     if (subtitle) content.subtitle = subtitle;
@@ -511,6 +561,43 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
     NSString *groupID = options[@"groupID"];
     if (groupID) content.threadIdentifier = groupID;
+
+    // Buttons and text fields only exist as part of a category, which has to be
+    // registered with the centre before the request is added.
+    NSArray<NSString *> *actionTitles = options[@"actions"];
+    BOOL wantsReply = [options[@"reply"] boolValue];
+    BOOL interactive = (actionTitles.count > 0 || wantsReply);
+
+    if (interactive) {
+      NSMutableArray<UNNotificationAction *> *actions = [NSMutableArray array];
+
+      if (wantsReply) {
+        NSString *placeholder = options[@"replyPlaceholder"] ?: @"";
+        [actions addObject:
+          [UNTextInputNotificationAction actionWithIdentifier:TNReplyActionIdentifier
+                                                        title:@"Reply"
+                                                      options:UNNotificationActionOptionNone
+                                         textInputButtonTitle:@"Send"
+                                         textInputPlaceholder:placeholder]];
+      }
+
+      // The identifier is the index, so the title can be recovered verbatim
+      // from the notification's userInfo when the response comes back.
+      [actionTitles enumerateObjectsUsingBlock:^(NSString *title, NSUInteger i, BOOL *stop) {
+        [actions addObject:
+          [UNNotificationAction actionWithIdentifier:[NSString stringWithFormat:@"action-%lu", (unsigned long)i]
+                                               title:title
+                                             options:UNNotificationActionOptionNone]];
+      }];
+
+      UNNotificationCategory *category =
+        [UNNotificationCategory categoryWithIdentifier:TNCategoryIdentifier
+                                              actions:actions
+                                    intentIdentifiers:@[]
+                                              options:UNNotificationCategoryOptionCustomDismissAction];
+      [center setNotificationCategories:[NSSet setWithObject:category]];
+      content.categoryIdentifier = TNCategoryIdentifier;
+    }
 
     if (options[@"ignoreDnD"]) {
       if (@available(macOS 12.0, *)) {
@@ -549,6 +636,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     if (groupID)              userInfo[@"groupID"]  = groupID;
     if (options[@"command"])  userInfo[@"command"]  = options[@"command"];
     if (options[@"open"])     userInfo[@"open"]     = options[@"open"];
+    if (actionTitles)         userInfo[@"actions"]  = actionTitles;
     content.userInfo = userInfo;
 
     // Reusing an identifier is what makes a notification replace an earlier
@@ -556,8 +644,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     // Sharing one identifier across all ungrouped notifications would make
     // every new notification silently overwrite the previous one.
     NSString *identifier = groupID ?: [[NSUUID UUID] UUIDString];
-
-    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
 
     if (groupID) {
       [center removeDeliveredNotificationsWithIdentifiers:@[identifier]];
@@ -581,6 +667,24 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         }
         exit(TNExitDeliveryFailed);
       }
+      if (interactive) {
+        // A button or reply field is only useful if the caller can read what
+        // the user chose, and stdout is still connected to them only while this
+        // process lives. Exiting here would send the response to a relaunched
+        // copy whose output goes nowhere.
+        self.awaitingResponse = YES;
+
+        NSNumber *timeout = options[@"timeout"];
+        if (timeout != nil) {
+          dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                       (int64_t)(timeout.doubleValue * NSEC_PER_SEC)),
+                         dispatch_get_main_queue(), ^{
+            [self reportResponse:TNResponseTimeout andExit:TNExitNoResponse];
+          });
+        }
+        return;
+      }
+
       // The request is handed off and persisted at this point; presentation and
       // sound are the notification service's job, not ours. There is nothing
       // left to wait for, so exit immediately rather than on a timer.
@@ -654,8 +758,58 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   }];
 }
 
+- (void)reportResponse:(NSString *)text andExit:(int)status;
+{
+  printf("%s\n", [text UTF8String]);
+  fflush(stdout);
+  exit(status);
+}
+
+// Maps a response on an interactive notification onto a single line of stdout.
+// Returns NO when the notification was not interactive, so the caller falls
+// through to the -open/-execute/-activate handling instead.
+- (BOOL)reportInteractiveResponse:(UNNotificationResponse *)response;
+{
+  NSString *actionIdentifier = response.actionIdentifier;
+
+  if ([response isKindOfClass:[UNTextInputNotificationResponse class]]) {
+    [self reportResponse:[(UNTextInputNotificationResponse *)response userText]
+                 andExit:TNExitSuccess];
+    return YES;
+  }
+
+  if ([actionIdentifier isEqualToString:UNNotificationDismissActionIdentifier]) {
+    [self reportResponse:TNResponseClosed andExit:TNExitSuccess];
+    return YES;
+  }
+
+  if ([actionIdentifier hasPrefix:@"action-"]) {
+    NSArray<NSString *> *titles = response.notification.request.content.userInfo[@"actions"];
+    NSUInteger index = (NSUInteger)[[actionIdentifier substringFromIndex:7] integerValue];
+    NSString *title = (index < titles.count) ? titles[index] : actionIdentifier;
+    [self reportResponse:title andExit:TNExitSuccess];
+    return YES;
+  }
+
+  // The body itself was clicked. Only meaningful as a reportable outcome when
+  // the notification was interactive; otherwise it means "run the click action".
+  if ([actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier] &&
+      self.awaitingResponse) {
+    NSDictionary *userInfo = response.notification.request.content.userInfo;
+    BOOL hasClickAction = userInfo[@"bundleID"] || userInfo[@"command"] || userInfo[@"open"];
+    if (!hasClickAction) {
+      [self reportResponse:TNResponseClicked andExit:TNExitSuccess];
+      return YES;
+    }
+  }
+
+  return NO;
+}
+
 - (void)userActivatedNotification:(UNNotificationResponse *)response;
 {
+  if ([self reportInteractiveResponse:response]) return;
+
   self.launchedFromNotification = YES;
 
   UNNotificationContent *content = response.notification.request.content;
