@@ -35,6 +35,9 @@ jobs:
       - name: Run specs
         run: bundle exec rspec
 
+      - name: Lint
+        run: bundle exec rubocop
+
   gem:
     name: Build gem
     runs-on: macos-latest

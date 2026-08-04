@@ -5,7 +5,7 @@ require 'shellwords'
 
 APP_NAME   = 'terminal-notifier.app'
 VENDOR_DIR = 'vendor/terminal-notifier'
-BINARY     = "#{VENDOR_DIR}/#{APP_NAME}/Contents/MacOS/terminal-notifier"
+BINARY     = "#{VENDOR_DIR}/#{APP_NAME}/Contents/MacOS/terminal-notifier".freeze
 
 desc 'Remove the vendored binary'
 task :clean do
@@ -36,7 +36,7 @@ task :update_build do
 end
 
 desc 'Build gem'
-task :gem => :update_build do
+task gem: :update_build do
   sh 'gem build terminal-notifier.gemspec'
 end
 
@@ -45,4 +45,4 @@ task :spec do
   sh 'bundle exec rspec'
 end
 
-task :default => :spec
+task default: :spec

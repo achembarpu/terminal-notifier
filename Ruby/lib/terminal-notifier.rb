@@ -5,6 +5,10 @@ require 'shellwords'
 
 require 'terminal-notifier/version'
 
+# Sends macOS User Notifications by shelling out to the bundled
+# terminal-notifier application.
+#
+# See TerminalNotifier.notify, .remove and .list for the public API.
 module TerminalNotifier
   # Minimum macOS version supported by the bundled binary. UNUserNotificationCenter,
   # which the tool is built on, is not available before this.
@@ -15,8 +19,8 @@ module TerminalNotifier
   BIN_PATH = ENV.fetch(
     'TERMINAL_NOTIFIER_BIN',
     File.expand_path(
-      '../../vendor/terminal-notifier/terminal-notifier.app/Contents/MacOS/terminal-notifier',
-      __FILE__
+      '../vendor/terminal-notifier/terminal-notifier.app/Contents/MacOS/terminal-notifier',
+      __dir__
     )
   )
 
@@ -56,7 +60,7 @@ module TerminalNotifier
   def self.command_for(options)
     arguments = options.flat_map do |key, value|
       case value
-      when true  then ["-#{key}"]
+      when true then ["-#{key}"]
       when false, nil then []
       else ["-#{key}", escape_value(value.to_s)]
       end
@@ -91,22 +95,27 @@ module TerminalNotifier
   # Raises UnsupportedPlatformError when not on a supported macOS, and
   # BinaryNotFoundError when the vendored binary is missing.
   def self.execute(verbose, options)
+    ensure_usable!
+
+    output = IO.popen(command_for(options), &:read)
+    # Remember the status so callers aren't exposed to races on the global $?.
+    Thread.current[:terminal_notifier_last_status] = $?
+    $stdout.print output if verbose
+    output
+  end
+
+  # Raises unless this platform and installation can actually run the binary.
+  def self.ensure_usable!
     unless available?
       raise UnsupportedPlatformError,
             "terminal-notifier is only supported on macOS #{MINIMUM_MACOS_VERSION} or higher."
     end
 
-    unless File.executable?(BIN_PATH)
-      raise BinaryNotFoundError,
-            "terminal-notifier binary not found at #{BIN_PATH}. " \
-            'Set TERMINAL_NOTIFIER_BIN to point at it.'
-    end
+    return if File.executable?(BIN_PATH)
 
-    output = IO.popen(command_for(options)) { |stdout| stdout.read }
-    # Remember the status so callers aren't exposed to races on the global $?.
-    Thread.current[:terminal_notifier_last_status] = $?
-    $stdout.print output if verbose
-    output
+    raise BinaryNotFoundError,
+          "terminal-notifier binary not found at #{BIN_PATH}. " \
+          'Set TERMINAL_NOTIFIER_BIN to point at it.'
   end
 
   # The exit status of the most recent execute call on this thread.
@@ -150,9 +159,9 @@ module TerminalNotifier
     if options[:reply] || options['reply'] || always_string
       result
     else
-      # Note: an empty result yields `true`, not a symbol, because the `||`
+      # NOTE: an empty result yields `true`, not a symbol, because the `||`
       # short-circuits. Odd, but it is the long-standing public contract.
-      result.length == 0 || result.downcase.gsub(/\W+/, '_').to_sym
+      result.empty? || result.downcase.gsub(/\W+/, '_').to_sym
     end
   end
   module_function :notify_result
@@ -177,7 +186,7 @@ module TerminalNotifier
   #
   # Raises UnsupportedPlatformError if not supported on the current platform.
   def notify(message, options = {}, verbose = false, always_string = false)
-    result = TerminalNotifier.execute(verbose, options.merge(:message => message))
+    result = TerminalNotifier.execute(verbose, options.merge(message: message))
     TerminalNotifier.succeeded? && notify_result(result, options, always_string)
   end
   module_function :notify
@@ -186,13 +195,15 @@ module TerminalNotifier
   # ‘group’ ID, if one exists.
   #
   # If no ‘group’ ID is given, all notifications are removed.
+  # rubocop:disable Naming/PredicateMethod -- `remove` is the public API name
   def remove(group = 'ALL', verbose = false)
-    TerminalNotifier.execute(verbose, :remove => group)
+    TerminalNotifier.execute(verbose, remove: group)
     TerminalNotifier.succeeded?
   end
+  # rubocop:enable Naming/PredicateMethod
   module_function :remove
 
-  LIST_FIELDS = [:group, :title, :subtitle, :message, :delivered_at].freeze
+  LIST_FIELDS = %i[group title subtitle message delivered_at].freeze
 
   # If a ‘group’ ID is given, and a notification for that group exists,
   # returns a hash with details about the notification.
@@ -202,28 +213,33 @@ module TerminalNotifier
   #
   # If no information is available this will return `nil`.
   def list(group = 'ALL', verbose = false)
-    output = TerminalNotifier.execute(verbose, :list => group)
+    output = TerminalNotifier.execute(verbose, list: group)
     return if output.nil? || output.strip.empty?
 
     require 'time'
-    notifications = output.split("\n")[1..-1].to_a.map do |line|
-      LIST_FIELDS.zip(line.split("\t")).each_with_object({}) do |(key, value), hash|
-        hash[key] =
-          if key == :delivered_at
-            begin
-              Time.parse(value.to_s)
-            rescue ArgumentError, TypeError
-              nil
-            end
-          else
-            # 3.0.0 emits an empty field for an absent value; earlier binaries
-            # emitted the literal string "(null)".
-            value unless value.nil? || value.empty? || value == '(null)'
-          end
-      end
-    end
+    # Drop the header row.
+    notifications = output.split("\n")[1..].to_a.map { |line| TerminalNotifier.parse_list_row(line) }
 
     group == 'ALL' ? notifications : notifications.first
   end
   module_function :list
+
+  # Turns one tab-separated -list row into a hash.
+  def self.parse_list_row(line)
+    LIST_FIELDS.zip(line.split("\t")).each_with_object({}) do |(key, value), hash|
+      hash[key] = key == :delivered_at ? parse_time(value) : presence(value)
+    end
+  end
+
+  def self.parse_time(value)
+    Time.parse(value.to_s)
+  rescue ArgumentError, TypeError
+    nil
+  end
+
+  # 3.0.0 emits an empty field for an absent value; earlier binaries emitted the
+  # literal string "(null)".
+  def self.presence(value)
+    value unless value.nil? || value.empty? || value == '(null)'
+  end
 end

@@ -19,17 +19,17 @@ RSpec.describe TerminalNotifier do
       # Not shell escaping (IO.popen gets an argv array). Without the backslash
       # the binary's NSUserDefaults parse yields nil and nothing is sent; the
       # binary strips the backslash again. This is the README's ‘\[’ escaping.
-      expect(described_class.command_for(:message => '[ZOMG] "OH YEAH"'))
+      expect(described_class.command_for(message: '[ZOMG] "OH YEAH"'))
         .to eq [TerminalNotifier::BIN_PATH, '-message', '\\[ZOMG] "OH YEAH"']
     end
 
     it 'leaves an ordinary first character alone' do
-      expect(described_class.command_for(:message => 'plain message'))
+      expect(described_class.command_for(message: 'plain message'))
         .to eq [TerminalNotifier::BIN_PATH, '-message', 'plain message']
     end
 
     it 'prefixes a space to values starting with a dash' do
-      expect(described_class.command_for(:message => '-kittens', :title => '-rule'))
+      expect(described_class.command_for(message: '-kittens', title: '-rule'))
         .to eq [TerminalNotifier::BIN_PATH, '-message', ' -kittens', '-title', ' -rule']
     end
 
@@ -38,22 +38,22 @@ RSpec.describe TerminalNotifier do
     end
 
     it 'escapes a leading quote too' do
-      expect(described_class.command_for(:message => %q{"quoted"}))
-        .to eq [TerminalNotifier::BIN_PATH, '-message', %q{\\"quoted"}]
+      expect(described_class.command_for(message: '"quoted"'))
+        .to eq [TerminalNotifier::BIN_PATH, '-message', '\\"quoted"']
     end
 
     it 'stringifies non-string values' do
-      expect(described_class.command_for(:group => 1234))
+      expect(described_class.command_for(group: 1234))
         .to eq [TerminalNotifier::BIN_PATH, '-group', '1234']
     end
 
     it 'emits a bare flag for a true value' do
-      expect(described_class.command_for(:reply => true))
+      expect(described_class.command_for(reply: true))
         .to eq [TerminalNotifier::BIN_PATH, '-reply']
     end
 
     it 'omits an option whose value is false or nil' do
-      expect(described_class.command_for(:reply => false, :ignoreDnD => nil))
+      expect(described_class.command_for(reply: false, ignoreDnD: nil))
         .to eq [TerminalNotifier::BIN_PATH]
     end
   end
@@ -65,33 +65,33 @@ RSpec.describe TerminalNotifier do
       expect(IO).to receive(:popen)
         .with([TerminalNotifier::BIN_PATH, '-message', 'ZOMG'])
         .and_yield(StringIO.new('output'))
-      described_class.execute(false, :message => 'ZOMG')
+      described_class.execute(false, message: 'ZOMG')
     end
 
     it 'returns the output of the command' do
       allow(IO).to receive(:popen).and_yield(StringIO.new('output'))
-      expect(described_class.execute(false, :message => 'ZOMG')).to eq 'output'
+      expect(described_class.execute(false, message: 'ZOMG')).to eq 'output'
     end
 
     it 'prints the output when verbose' do
       allow(IO).to receive(:popen).and_yield(StringIO.new('output'))
-      expect { described_class.execute(true, :message => 'ZOMG') }.to output('output').to_stdout
+      expect { described_class.execute(true, message: 'ZOMG') }.to output('output').to_stdout
     end
 
     it 'stays quiet when not verbose' do
       allow(IO).to receive(:popen).and_yield(StringIO.new('output'))
-      expect { described_class.execute(false, :message => 'ZOMG') }.not_to output.to_stdout
+      expect { described_class.execute(false, message: 'ZOMG') }.not_to output.to_stdout
     end
 
     it 'raises UnsupportedPlatformError when the platform is unsupported' do
       allow(described_class).to receive(:available?).and_return(false)
-      expect { described_class.execute(false, :message => 'ZOMG') }
+      expect { described_class.execute(false, message: 'ZOMG') }
         .to raise_error(TerminalNotifier::UnsupportedPlatformError, /10\.14/)
     end
 
     it 'raises BinaryNotFoundError when the vendored binary is missing' do
       allow(File).to receive(:executable?).with(TerminalNotifier::BIN_PATH).and_return(false)
-      expect { described_class.execute(false, :message => 'ZOMG') }
+      expect { described_class.execute(false, message: 'ZOMG') }
         .to raise_error(TerminalNotifier::BinaryNotFoundError, /TERMINAL_NOTIFIER_BIN/)
     end
   end
@@ -140,8 +140,8 @@ RSpec.describe TerminalNotifier do
       # Braces matter here: notify passes options.merge(...), i.e. a positional
       # Hash, which Ruby 3 keeps distinct from keyword arguments.
       expect(described_class).to receive(:execute)
-        .with(false, { :message => 'ZOMG', :group => 'important stuff' })
-      described_class.notify('ZOMG', :group => 'important stuff')
+        .with(false, { message: 'ZOMG', group: 'important stuff' })
+      described_class.notify('ZOMG', group: 'important stuff')
     end
 
     it 'returns false when the command failed' do
@@ -153,12 +153,12 @@ RSpec.describe TerminalNotifier do
 
   describe '.remove' do
     it 'removes the given group' do
-      expect(described_class).to receive(:execute).with(false, :remove => 'important stuff')
+      expect(described_class).to receive(:execute).with(false, remove: 'important stuff')
       described_class.remove('important stuff')
     end
 
     it 'removes all notifications by default' do
-      expect(described_class).to receive(:execute).with(false, :remove => 'ALL')
+      expect(described_class).to receive(:execute).with(false, remove: 'ALL')
       described_class.remove
     end
   end
@@ -171,7 +171,7 @@ RSpec.describe TerminalNotifier do
     end
 
     it 'returns the raw string when :reply was given' do
-      expect(described_class.notify_result('I like pie', :reply => true)).to eq 'I like pie'
+      expect(described_class.notify_result('I like pie', reply: true)).to eq 'I like pie'
       expect(described_class.notify_result('I like pie', 'reply' => true)).to eq 'I like pie'
     end
 
@@ -181,7 +181,7 @@ RSpec.describe TerminalNotifier do
 
     it 'strips the trailing newline the binary emits' do
       expect(described_class.notify_result("Ship\n", {})).to eq :ship
-      expect(described_class.notify_result("blue\n", :reply => true)).to eq 'blue'
+      expect(described_class.notify_result("blue\n", reply: true)).to eq 'blue'
     end
 
     it 'returns true for an empty result' do
@@ -193,7 +193,7 @@ RSpec.describe TerminalNotifier do
 
   describe '.list' do
     it 'returns nil when nothing was found' do
-      allow(described_class).to receive(:execute).with(false, :list => 'important stuff').and_return('')
+      allow(described_class).to receive(:execute).with(false, list: 'important stuff').and_return('')
       expect(described_class.list('important stuff')).to be_nil
     end
 
@@ -203,14 +203,14 @@ RSpec.describe TerminalNotifier do
     end
 
     it 'parses a single group, treating an empty field as nil' do
-      allow(described_class).to receive(:execute).with(false, :list => 'important stuff').and_return(
+      allow(described_class).to receive(:execute).with(false, list: 'important stuff').and_return(
         "GroupID\tTitle\tSubtitle\tMessage\tDelivered At\n" \
         "important stuff\tTerminal\t\tExecute: rake spec\t2012-08-06 19:45:30 +0000"
       )
       expect(described_class.list('important stuff')).to eq(
-        :group => 'important stuff', :title => 'Terminal', :subtitle => nil,
-        :message => 'Execute: rake spec',
-        :delivered_at => Time.parse('2012-08-06 19:45:30 +0000')
+        group: 'important stuff', title: 'Terminal', subtitle: nil,
+        message: 'Execute: rake spec',
+        delivered_at: Time.parse('2012-08-06 19:45:30 +0000')
       )
     end
 
@@ -224,18 +224,18 @@ RSpec.describe TerminalNotifier do
     end
 
     it 'returns every notification by default' do
-      allow(described_class).to receive(:execute).with(false, :list => 'ALL').and_return(
+      allow(described_class).to receive(:execute).with(false, list: 'ALL').and_return(
         "GroupID\tTitle\tSubtitle\tMessage\tDelivered At\n" \
         "important stuff\tTerminal\t\tExecute: rake spec\t2012-08-06 19:45:30 +0000\n" \
         "\t\tSubtle\tBe subtle!\t2012-08-07 19:45:30 +0000"
       )
       expect(described_class.list).to eq [
-        { :group => 'important stuff', :title => 'Terminal', :subtitle => nil,
-          :message => 'Execute: rake spec',
-          :delivered_at => Time.parse('2012-08-06 19:45:30 +0000') },
-        { :group => nil, :title => nil, :subtitle => 'Subtle',
-          :message => 'Be subtle!',
-          :delivered_at => Time.parse('2012-08-07 19:45:30 +0000') }
+        { group: 'important stuff', title: 'Terminal', subtitle: nil,
+          message: 'Execute: rake spec',
+          delivered_at: Time.parse('2012-08-06 19:45:30 +0000') },
+        { group: nil, title: nil, subtitle: 'Subtle',
+          message: 'Be subtle!',
+          delivered_at: Time.parse('2012-08-07 19:45:30 +0000') }
       ]
     end
 

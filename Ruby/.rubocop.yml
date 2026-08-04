@@ -1,0 +1,46 @@
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+
+# The file name has to match the gem name, which contains a dash.
+Naming/FileName:
+  Enabled: false
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+# notify(message, options, verbose, always_string) is the long-standing public
+# signature. Converting the trailing flags to keyword arguments would break
+# every existing caller.
+Style/OptionalBooleanParameter:
+  Enabled: false
+
+# expect(...).to receive(...) reads better here than the have_received spy style,
+# and these specs assert on argv construction where the call *is* the subject.
+RSpec/MessageSpies:
+  Enabled: false
+RSpec/StubbedMock:
+  Enabled: false
+# Separate stubs per method are clearer than collapsing them into receive_messages.
+RSpec/ReceiveMessages:
+  Enabled: false
+
+# A few examples legitimately assert several related facts about one call.
+RSpec/MultipleExpectations:
+  Max: 3
+RSpec/ExampleLength:
+  Max: 15
+
+# $? is universally understood; requiring 'English' for one use is noise.
+Style/SpecialGlobalVars:
+  Enabled: false
+
+# TerminalNotifier is a single flat namespace holding the whole public API.
+# Splitting it up to satisfy a line count would make it harder to follow.
+Metrics/ModuleLength:
+  Max: 130
