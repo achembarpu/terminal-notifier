@@ -60,3 +60,32 @@ jobs:
           "$BIN" -version
           echo "--- -help ---"
           "$BIN" -help | head -5
+
+  make:
+    name: Build with make (Command Line Tools only)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Point at the Command Line Tools rather than the runner's Xcode, so this
+      # job fails if the build ever grows an Xcode-only dependency again (ibtool
+      # was the last one).
+      - name: Select the Command Line Tools
+        run: |
+          sudo xcode-select -s /Library/Developer/CommandLineTools
+          xcrun --find ibtool && { echo "::error::ibtool present, expected CLT-only"; exit 1; } || true
+
+      - name: make test-native
+        run: make test-native
+
+      - name: make icon
+        run: |
+          # Any square PNG will do; this checks the sips/iconutil pipeline.
+          sips -s format png --resampleHeightWidth 256 256 \
+            /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns \
+            --out /tmp/icon.png
+          make icon ICON=/tmp/icon.png APP_NAME=ci-check
+          test -f build/ci-check.app/Contents/Resources/icon.icns
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            build/ci-check.app/Contents/Info.plist | grep -q 'ci-check'
