@@ -40,10 +40,8 @@ New `-diagnose` reports why a notification is not appearing.
   you're using macOS < 10.10, use 1.6.3.
 
 * The notification icon always comes from the application bundle. macOS
-  provides no API to override it per notification, so if you want a custom
-  icon you need your own copy of the bundle: duplicate `terminal-notifier.app`,
-  replace `Contents/Resources/Terminal.icns`, adjust `CFBundleIdentifier` in
-  `Contents/Info.plist`, and re-sign it with `codesign --force --sign - YourApp.app`.
+  provides no API to override it per notification, so a custom icon means a
+  custom bundle — `make icon` builds one for you, see [Custom icons](#custom-icons).
 
 * Notifications stay on screen until dismissed only if you set the style to
   Alerts in System Settings; that is a per-application user setting and cannot
@@ -68,6 +66,48 @@ You can also install it via [Homebrew](https://github.com/mxcl/homebrew):
 ```
 $ brew install terminal-notifier
 ```
+
+## Building
+
+Only the Command Line Tools are needed — `xcode-select --install` is enough, and
+a full Xcode install is not required.
+
+```
+$ make app        # -> build/terminal-notifier.app (universal, ad-hoc signed)
+$ make install    # -> /Applications, plus a symlink in /usr/local/bin
+```
+
+`make help` lists everything. An Xcode project is also included if you prefer
+it, but nothing in the build depends on it.
+
+### Testing
+
+```
+$ make test           # native smoke tests and the Ruby specs
+$ make test-native    # binary only, no Ruby needed
+$ make test-delivery   # posts real notifications; needs permission granted
+```
+
+`make test` deliberately covers only what can run unattended. Actually
+delivering a notification requires a granted permission and a logged-in GUI
+session, which cannot be arranged non-interactively, so those checks live in
+`make test-delivery` and are run by hand.
+
+### Custom icons
+
+Because the icon comes from the bundle, `make icon` builds a copy of the app
+carrying your image:
+
+```
+$ make icon ICON=~/logo.png APP_NAME=deploy-notifier
+$ build/deploy-notifier.app/Contents/MacOS/terminal-notifier -message 'Deployed'
+```
+
+A PNG or JPEG is converted to a full multi-resolution `.icns`; an existing
+`.icns` is used as-is. The copy gets its own bundle identifier
+(`fr.julienxx.oss.terminal-notifier.deploy-notifier`), which is what gives it a
+separate icon — and, as a consequence, its own entry in System Settings >
+Notifications and its own permission prompt the first time you use it.
 
 ## Usage
 
