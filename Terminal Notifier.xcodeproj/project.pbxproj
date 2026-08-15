@@ -11,7 +11,6 @@
 		5199792315B1F92B003AFC57 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 5199792115B1F92B003AFC57 /* InfoPlist.strings */; };
 		5199792515B1F92B003AFC57 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 5199792415B1F92B003AFC57 /* main.m */; };
 		5199792C15B1F92B003AFC57 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 5199792B15B1F92B003AFC57 /* AppDelegate.m */; };
-		5199792F15B1F92B003AFC57 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 5199792D15B1F92B003AFC57 /* MainMenu.xib */; };
 		5199794215B2F908003AFC57 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5199794115B2F908003AFC57 /* UserNotifications.framework */; };
 		5199794C15B302F1003AFC57 /* Terminal.icns in Resources */ = {isa = PBXBuildFile; fileRef = 5199794B15B302F1003AFC57 /* Terminal.icns */; };
 /* End PBXBuildFile section */
@@ -28,7 +27,6 @@
 		5199792615B1F92B003AFC57 /* Terminal Notifier-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Terminal Notifier-Prefix.pch"; sourceTree = "<group>"; };
 		5199792A15B1F92B003AFC57 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		5199792B15B1F92B003AFC57 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
-		5199792E15B1F92B003AFC57 /* en */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = en; path = en.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		5199794115B2F908003AFC57 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		5199794B15B302F1003AFC57 /* Terminal.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = Terminal.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -89,7 +87,6 @@
 			children = (
 				5199792A15B1F92B003AFC57 /* AppDelegate.h */,
 				5199792B15B1F92B003AFC57 /* AppDelegate.m */,
-				5199792D15B1F92B003AFC57 /* MainMenu.xib */,
 				5199791F15B1F92B003AFC57 /* Supporting Files */,
 			);
 			path = "Terminal Notifier";
@@ -158,7 +155,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				5199792315B1F92B003AFC57 /* InfoPlist.strings in Resources */,
-				5199792F15B1F92B003AFC57 /* MainMenu.xib in Resources */,
 				5199794C15B302F1003AFC57 /* Terminal.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -184,14 +180,6 @@
 				5199792215B1F92B003AFC57 /* en */,
 			);
 			name = InfoPlist.strings;
-			sourceTree = "<group>";
-		};
-		5199792D15B1F92B003AFC57 /* MainMenu.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				5199792E15B1F92B003AFC57 /* en */,
-			);
-			name = MainMenu.xib;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
