@@ -139,6 +139,14 @@ suppressing them. To make macOS ask for permission again:
 $ tccutil reset UserNotification fr.julienxx.oss.terminal-notifier
 ```
 
+`tccutil` resolves that identifier through LaunchServices, so the app bundle has
+to still be installed somewhere it looks — `/Applications` or `~/Applications`.
+Running it against a bundle sitting in a build directory, or after deleting the
+app, fails with `OSStatus error -10814`.
+
+`terminal-notifier -diagnose` reports the same information without changing
+anything, and is the better place to start.
+
 
 ### Example Uses
 
