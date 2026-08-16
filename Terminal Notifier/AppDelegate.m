@@ -166,8 +166,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
          "                          the icon always comes from the app bundle. See the README for the\n" \
          "                          custom-bundle workaround.\n" \
          "\n" \
-         "When the user activates a notification, the results are logged to the system logs.\n" \
-         "Use Console.app to view these logs.\n" \
+         "With -action or -reply the outcome is printed on stdout: the button title, the text\n" \
+         "that was typed, or one of @ACTIONCLICKED, @CLOSED or @TIMEOUT.\n" \
+         "\n" \
+         "What -open, -execute and -activate did is written to the system log instead. Read it\n" \
+         "with Console.app, or:  log show --predicate 'process == \"terminal-notifier\"' --last 5m\n" \
          "\n" \
          "Note that in some circumstances the first character of a message has to be escaped in order to be recognized.\n" \
          "An example of this is when using an open bracket, which has to be escaped like so: ‘\\[’.\n" \
