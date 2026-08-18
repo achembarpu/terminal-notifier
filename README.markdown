@@ -80,18 +80,42 @@ $ make install    # -> /Applications, plus a symlink in /usr/local/bin
 `make help` lists everything. An Xcode project is also included if you prefer
 it, but nothing in the build depends on it.
 
-### Testing
+### Checking that it works
 
 ```
-$ make test           # native smoke tests and the Ruby specs
-$ make test-native    # binary only, no Ruby needed
-$ make test-delivery   # posts real notifications; needs permission granted
+$ make doctor
 ```
 
-`make test` deliberately covers only what can run unattended. Actually
-delivering a notification requires a granted permission and a logged-in GUI
-session, which cannot be arranged non-interactively, so those checks live in
-`make test-delivery` and are run by hand.
+`make doctor` verifies every option this README documents, and tells you what is
+wrong when something does not work. It reports the build (universal, signed,
+deployment target), the environment (authorization, alert style, sounds,
+whether Notification Center is running), then exercises each option in turn.
+
+Some things only a person can judge — whether a sound was audible, whether a
+button click did the right thing, whether a reply arrived — so `make doctor`
+prompts you for those and waits.
+
+```
+Delivery
+  ok    -group replaces the previous notification
+  ok    piped stdin becomes the message
+  ...
+
+Checks that need you
+  -->   Hover it to reveal the buttons, then click Ship.
+  ok    -action reports the clicked button
+        Did you HEAR a notification sound? [y/n]
+```
+
+Checks that need a notification are **skipped, not failed**, when notifications
+are unavailable — over SSH, in CI, or before permission has been granted — so
+the suite is safe to run anywhere. It exits non-zero only for a real problem.
+
+```
+$ make test          # everything that runs without a person (doctor + Ruby specs)
+$ make test-native   # just the doctor's unattended checks, no Ruby needed
+$ make test-ruby     # the Ruby gem specs
+```
 
 ### Custom icons
 

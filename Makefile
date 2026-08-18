@@ -38,10 +38,11 @@ help:
 	@echo '  make uninstall                 remove both'
 	@echo '  make icon ICON=path/to.png     build a copy with your own icon'
 	@echo '           [APP_NAME=my-tool]    (see "Custom icons" in the README)'
-	@echo '  make test                      run every test that does not need a person'
-	@echo '  make test-native               binary smoke tests only'
+	@echo '  make doctor                    check every documented option works'
+	@echo '                                 (prompts you for the interactive ones)'
+	@echo '  make test                      everything that runs without a person'
+	@echo '  make test-native               the doctor'"'"'s unattended checks only'
 	@echo '  make test-ruby                 the Ruby gem specs'
-	@echo '  make test-delivery             post real notifications (interactive)'
 	@echo '  make clean                     remove $(BUILD_DIR)'
 	@echo
 	@echo 'install may need sudo, depending on $(APPDIR) and $(PREFIX).'
@@ -127,51 +128,21 @@ test: test-native test-ruby
 # Everything here runs without a notification permission, so it works headless
 # and in CI. Actually delivering a notification needs a TCC grant, which cannot
 # be given non-interactively — see test-delivery.
+.PHONY: doctor
+doctor: app
+	@tests/doctor.sh
+
+# Everything the doctor can check without a person. Delivery needs a granted
+# permission and a GUI session, so those checks report as skipped rather than
+# failed when they are unavailable, and the exit status stays 0.
 .PHONY: test-native
 test-native: app
-	@echo '==> native smoke tests'
-	@bin='$(APP)/Contents/MacOS/$(NAME)'; fail=0; \
-	check() { if [ "$$2" = "$$3" ]; then echo "    ok   $$1"; \
-	          else echo "    FAIL $$1 (got $$2, want $$3)"; fail=1; fi; }; \
-	"$$bin" -version >/dev/null 2>&1; check '-version exits 0' $$? 0; \
-	"$$bin" -help >/dev/null 2>&1; check '-help exits 0' $$? 0; \
-	"$$bin" </dev/null >/dev/null 2>&1; check 'no arguments is a usage error' $$? 1; \
-	"$$bin" -message x -open 'not a uri' >/dev/null 2>&1; check 'bad -open exits 2' $$? 2; \
-	"$$bin" -message x -action Yes -timeout 0 >/dev/null 2>&1; check 'bad -timeout exits 2' $$? 2; \
-	"$$bin" -message '[unescaped' </dev/null >/dev/null 2>&1; check 'unreadable -message exits 2' $$? 2; \
-	"$$bin" -version 2>/dev/null | grep -q '$(VERSION)'; check 'reports its version' $$? 0; \
-	lipo -info "$$bin" | grep -q arm64; check 'has an arm64 slice' $$? 0; \
-	lipo -info "$$bin" | grep -q x86_64; check 'has an x86_64 slice' $$? 0; \
-	codesign --verify --strict '$(APP)' 2>/dev/null; check 'signature verifies' $$? 0; \
-	exit $$fail
+	@tests/doctor.sh --unattended
 
 .PHONY: test-ruby
 test-ruby:
 	@echo '==> ruby specs'
 	@cd Ruby && bundle exec rspec
-
-# Posts real notifications, so it needs a granted permission and a logged-in
-# GUI session. Run it by hand; it cannot work in CI.
-.PHONY: test-delivery
-test-delivery: app
-	@bin='$(APP)/Contents/MacOS/$(NAME)'; \
-	echo '==> delivery tests (needs notification permission)'; \
-	"$$bin" -remove ALL >/dev/null 2>&1 || true; sleep 1; \
-	for m in first second third; do "$$bin" -message "$$m" >/dev/null; done; sleep 1; \
-	n=$$("$$bin" -list ALL | tail -n +2 | wc -l | tr -d ' '); \
-	[ "$$n" = 3 ] && echo "    ok   three sends produce three notifications" \
-	              || echo "    FAIL expected 3 notifications, got $$n"; \
-	"$$bin" -remove ALL >/dev/null 2>&1; sleep 1; \
-	"$$bin" -message a -group g >/dev/null; sleep 1; \
-	"$$bin" -message b -group g >/dev/null; sleep 1; \
-	n=$$("$$bin" -list ALL | tail -n +2 | wc -l | tr -d ' '); \
-	[ "$$n" = 1 ] && echo "    ok   -group replaces in place" \
-	              || echo "    FAIL expected 1 notification, got $$n"; \
-	"$$bin" -remove g >/dev/null; sleep 1; \
-	n=$$("$$bin" -list ALL | tail -n +2 | wc -l | tr -d ' '); \
-	[ "$$n" = 0 ] && echo "    ok   -remove removes" \
-	              || echo "    FAIL expected 0 notifications, got $$n"; \
-	echo '    run `make app && $(APP)/Contents/MacOS/$(NAME) -diagnose` if any of these fail'
 
 .PHONY: clean
 clean:
