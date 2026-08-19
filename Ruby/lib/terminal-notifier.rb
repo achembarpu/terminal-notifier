@@ -14,6 +14,11 @@ module TerminalNotifier
   # which the tool is built on, is not available before this.
   MINIMUM_MACOS_VERSION = '10.14'
 
+  # Exit code the binary uses when -timeout expires waiting for -action or
+  # -reply. The notification was delivered correctly and the tool reported
+  # @TIMEOUT, so this is an outcome to pass on rather than a failure.
+  TIMEOUT_EXIT_CODE = 6
+
   # Path to the binary inside the vendored application bundle. Overridable so
   # that a Homebrew-installed or self-built copy can be used instead.
   BIN_PATH = ENV.fetch(
@@ -128,6 +133,14 @@ module TerminalNotifier
     !status.nil? && status.success?
   end
 
+  # True when the binary ran and reported an outcome, including a timeout.
+  def self.reported?
+    status = last_status
+    return false if status.nil?
+
+    status.success? || status.exitstatus == TIMEOUT_EXIT_CODE
+  end
+
   # Cleans up the result of a notification, making it easier to work it
   #
   # The result of a notification is downcased, then groups of 1 or more
@@ -187,7 +200,9 @@ module TerminalNotifier
   # Raises UnsupportedPlatformError if not supported on the current platform.
   def notify(message, options = {}, verbose = false, always_string = false)
     result = TerminalNotifier.execute(verbose, options.merge(message: message))
-    TerminalNotifier.succeeded? && notify_result(result, options, always_string)
+    # A timeout counts as a reported outcome: without this it would come back as
+    # a bare false, indistinguishable from the notification failing to send.
+    TerminalNotifier.reported? && notify_result(result, options, always_string)
   end
   module_function :notify
 

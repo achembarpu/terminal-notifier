@@ -56,6 +56,9 @@ TerminalNotifier.notify("What's your name?", :reply => true, :timeout => 30)
 Action results come back symbolised by `notify_result`; a `:reply` result is
 returned as the raw string.
 
+A timeout returns `:_timeout` rather than `false`, so it can be told apart from
+the notification failing to send — which is what `false` means.
+
 
 ## Return values
 

@@ -144,6 +144,15 @@ RSpec.describe TerminalNotifier do
       described_class.notify('ZOMG', group: 'important stuff')
     end
 
+    it 'reports a timeout as a result rather than a failure' do
+      # The binary exits 6 on -timeout, but it delivered the notification and
+      # said what happened, so the caller should see :_timeout not false.
+      allow(described_class).to receive(:execute).and_return("@TIMEOUT\n")
+      allow(described_class).to receive(:last_status)
+        .and_return(instance_double(Process::Status, success?: false, exitstatus: 6))
+      expect(described_class.notify('Deploy?', action: 'Yes,No')).to eq :_timeout
+    end
+
     it 'returns false when the command failed' do
       allow(described_class).to receive(:execute).and_return('')
       allow(described_class).to receive(:succeeded?).and_return(false)
