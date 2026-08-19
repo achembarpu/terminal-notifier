@@ -20,10 +20,11 @@ task :update_build do
   rm_rf VENDOR_DIR
   mkdir_p VENDOR_DIR
 
-  sh 'cd .. && xcodebuild -project "Terminal Notifier.xcodeproj" ' \
-     '-scheme "Terminal Notifier" -configuration Release SYMROOT=build build'
+  # `make app` rather than xcodebuild: the Makefile builds with the Command Line
+  # Tools alone, so packaging the gem does not require a full Xcode install.
+  sh 'cd .. && make app'
 
-  cp_r "../build/Release/#{APP_NAME}", VENDOR_DIR
+  cp_r "../build/#{APP_NAME}", VENDOR_DIR
   chmod 0o755, BINARY
 
   # The published gem serves every Mac from a single upload, so a thin binary
