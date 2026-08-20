@@ -2,83 +2,482 @@
 
 [![GitHub release](https://img.shields.io/github/release/julienXX/terminal-notifier.svg)](https://github.com/julienXX/terminal-notifier/releases)
 
-terminal-notifier is a command-line tool to send macOS User Notifications,
-which are available on macOS 10.14 and higher.
-
-
-## News
-
-**3.0.0** moves off the deprecated `NSUserNotification` API onto
-`UNUserNotificationCenter`, ships a universal (Intel + Apple silicon) binary,
-and raises the minimum macOS to 10.14.
-
-Action buttons and inline replies are back, as `-action` and `-reply`. They were
-removed in 2.0.0 because the 1.7 implementation depended on private API; the
-`UserNotifications` framework supports them properly, so they no longer do.
-
-`-sender`, `-appIcon` and `-ignoreDnD` are gone — they relied on private API and
-on swizzling the bundle identifier, none of which is possible any more. They are
-still accepted so existing scripts keep running, but they warn and do nothing.
-See the Options section for details.
-
-New `-diagnose` reports why a notification is not appearing.
-
-
-## Caveats
-
-* It is packaged as an application bundle rather than a plain executable. A
-  notification is attributed to a bundle identity, so a ‘Foundation tool’ has
-  nothing to post as. This was true of `NSUserNotification` and remains true of
-  `UNUserNotificationCenter`. [radar://11956694](radar://11956694)
-
-* As of 3.0.0 terminal-notifier uses only public API. Versions 1.6.0 through
-  2.0.0 relied on a private method override and on swizzling the bundle
-  identifier, neither of which is permitted by the App Store Guidelines and
-  both of which stopped working on modern macOS.
-
-* If you're using macOS < 10.14 you should use terminal-notifier 2.0.0. If
-  you're using macOS < 10.10, use 1.6.3.
-
-* The notification icon always comes from the application bundle. macOS
-  provides no API to override it per notification, so a custom icon means a
-  custom bundle — `make icon` builds one for you, see [Custom icons](#custom-icons).
-
-* Notifications stay on screen until dismissed only if you set the style to
-  Alerts in System Settings; that is a per-application user setting and cannot
-  be chosen per notification. [alerter](https://github.com/vjeantet/alerter)
-  remains a good alternative if you want a tool designed entirely around
-  waiting for a response.
-
-## Download
-
-Prebuilt binaries are available from the
-[releases section](https://github.com/julienXX/terminal-notifier/releases).
-
-Or if you want to use this from
-[Ruby](https://github.com/julienXX/terminal-notifier/tree/master/Ruby), you can
-install it through RubyGems:
+terminal-notifier is a command-line tool to send macOS User Notifications.
 
 ```
-$ [sudo] gem install terminal-notifier
+$ terminal-notifier -title 'Build' -message 'Finished in 42s' -sound default
 ```
 
-You can also install it via [Homebrew](https://github.com/mxcl/homebrew):
+Requires macOS 10.14 or higher.
+
+**Upgrading from 2.x?** See [Differences from version 2](#differences-from-version-2).
+
+
+## Contents
+
+* [Installation](#installation)
+* [Usage](#usage)
+* [Options](#options)
+* [Interactive notifications](#interactive-notifications)
+* [Examples](#examples)
+* [When notifications do not appear](#when-notifications-do-not-appear)
+* [Custom icons](#custom-icons)
+* [Building from source](#building-from-source)
+* [Differences from version 2](#differences-from-version-2)
+* [Using it from Ruby](#using-it-from-ruby)
+* [License](#license)
+
+
+## Installation
+
+With [Homebrew](https://brew.sh):
+
 ```
 $ brew install terminal-notifier
 ```
 
-## Building
+Or download a prebuilt binary from the
+[releases page](https://github.com/julienXX/terminal-notifier/releases).
 
-Only the Command Line Tools are needed — `xcode-select --install` is enough, and
-a full Xcode install is not required.
+Or build it yourself, see
+[Building from source](#building-from-source):
+
+```
+$ make install
+```
+
+
+## Usage
+
+```
+$ terminal-notifier -[message|remove|list] [VALUE|ID|ID] [options]
+```
+
+At a minimum you must give one of `-message`, `-remove` or `-list`.
+
+If you downloaded the app bundle rather than installing it, call the binary
+_inside_ it:
+
+```
+$ ./terminal-notifier.app/Contents/MacOS/terminal-notifier -message 'Hello'
+```
+
+A notification is attributed to an application, so the terminal-notifier ships as an app
+bundle rather than a bare executable.
+
+### Escaping
+
+Option values are read through `NSUserDefaults`, which tries to parse each one
+as a property list. A value whose **first character** is `[`, `(`, `{`, `"` or
+similar is misread and the notification is not sent. Escape it with a
+backslash:
+
+```
+$ terminal-notifier -message '\[ZOMG] Everything is on fire'
+```
+
+Only the first character ever needs this. Since 3.0.0 terminal-notifier tells you when a
+value could not be read instead of failing silently.
+
+
+## Options
+
+### Required (one of)
+
+#### `-message VALUE`
+
+The body of the notification.
+
+```
+$ terminal-notifier -message 'Finished in 42s'
+```
+
+![-message](assets/message.png)
+
+The title defaults to `Terminal`, which is why it appears above.
+
+Can be omitted if you pipe data in instead, the piped text then becomes the body:
+
+```
+$ echo 'Deploy finished' | terminal-notifier
+```
+
+#### `-remove ID`
+
+Remove previously delivered notifications in the `ID` group. Use `ALL` to
+remove every notification terminal-notifier has posted.
+
+```
+$ terminal-notifier -remove build
+$ terminal-notifier -remove ALL
+```
+
+#### `-list ID`
+
+List delivered notifications in the `ID` group or `ALL` for every one. Output
+is tab separated with a header row:
+
+```
+GroupID   Title      Subtitle   Message           Delivered At
+build     Terminal              Finished in 42s   2026-08-23 10:22:16 +0000
+```
+
+Tabs and newlines inside a field are replaced with spaces, so each notification
+is always exactly one row of five columns. An absent field is empty.
+
+### Content
+
+#### `-title VALUE`
+
+The title. Defaults to `Terminal`.
+
+```
+$ terminal-notifier -title 'Build' -message 'Finished in 42s'
+```
+
+![-title](assets/title.png)
+
+Note that on macOS 11 and later the notification also shows the name of the
+application that sent it.
+[Custom icons](#custom-icons) explains how to change it.
+
+#### `-subtitle VALUE`
+
+The subtitle, shown between the title and the message.
+
+```
+$ terminal-notifier -title 'ProjectX' -subtitle 'new tag detected' -message 'v3.0.0 is ready'
+```
+
+![-subtitle](assets/subtitle.png)
+
+#### `-sound NAME`
+
+Play a sound when the notification appears. Names come from the files in
+`/System/Library/Sounds`. Use `default` for the standard notification sound.
+
+```
+$ terminal-notifier -message 'Done' -sound Glass
+```
+
+A name that does not match a file is ignored and the notification is delivered
+silently.
+
+#### `-contentImage PATH`
+
+Attach an image shown inside the notification.
+
+```
+$ terminal-notifier -title 'Report' -subtitle 'weekly summary' -message 'Chart attached' -contentImage ./chart.png
+```
+
+![-contentImage](assets/contentImage.png)
+
+Local files only in a format macOS recognises (PNG, JPEG, GIF).
+If the file is missing or unusable terminal-notifier says so and delivers the
+notification without it.
+
+To change the notification's **icon** rather than attach an image, see
+[Custom icons](#custom-icons).
+
+#### `-group ID`
+
+Group notifications under `ID`. Only one notification per group is ever shown.
+Posting again to the same group replaces the previous one (eg. for progress or status updates).
+
+```
+$ terminal-notifier -message 'Step 1 of 3' -group deploy
+$ terminal-notifier -message 'Step 2 of 3' -group deploy   # replaces the above
+```
+
+Without `-group`, every notification is separate and they accumulate.
+
+Useful group IDs are terminal-notifier's name (to scope by tool), `$$` (to scope by
+process) or `$PWD` (to scope by project).
+
+### Click actions
+
+These run when the user clicks the notification body. What happened is written
+to the system log. Read it with Console.app.
+
+#### `-open URL`
+
+Open a URL. Web, file or any custom scheme.
+
+```
+$ terminal-notifier -message 'Build failed' -open 'https://ci.example.com/build/42'
+```
+
+#### `-execute COMMAND`
+
+Run a shell command.
+
+```
+$ terminal-notifier -message 'Logs ready' -execute 'open -a Console /tmp/build.log'
+```
+
+The command runs through `/bin/sh -c` in a non-interactive shell, so your
+dotfiles are not loaded and `PATH` may be smaller than in your terminal. Use
+absolute paths.
+
+#### `-activate BUNDLE_ID`
+
+Bring an application to the front.
+
+```
+$ terminal-notifier -message 'Tests passed' -activate 'com.apple.Terminal'
+```
+
+Find an app's identifier with:
+
+```
+$ osascript -e 'id of app "Safari"'
+```
+
+### Interactive
+
+These make terminal-notifier **wait** for the user and print the outcome on stdout. See
+[Interactive notifications](#interactive-notifications).
+
+#### `-action TITLE`
+
+Add an action button. Pass a comma separated list or repeat the option:
+
+```
+$ terminal-notifier -message 'Deploy?' -action 'Yes,No'
+$ terminal-notifier -message 'Deploy?' -action Yes -action No
+```
+
+![-action](assets/action.png)
+
+macOS reveals the button when you hover the notification or shows it
+immediately if you have set the style to Alerts.
+
+A single action is drawn as a plain button, as above. Give it more than one and
+macOS collapses them into an **Options** menu instead.
+
+#### `-reply [PROMPT]`
+
+Add a text field, optionally with placeholder text. Prints what was typed.
+
+```
+$ answer=$(terminal-notifier -title 'Standup' -message 'What did you do yesterday?' -reply 'type your answer')
+```
+
+![-reply](assets/reply.png)
+
+#### `-timeout SECONDS`
+
+How long to wait for `-action` or `-reply`. Without it terminal-notifier waits forever.
+On expiry it prints `@TIMEOUT` and exits 6.
+
+Has no effect on any other mode which all return immediately.
+
+### Diagnostics
+
+#### `-diagnose`
+
+Report everything that decides whether a notification appears, then exit:
+authorization status, alert style, sound and preview settings, whether
+Notification Center is running and whether Scheduled Summary is holding
+notifications back. Any problems found are listed with how to fix them.
+
+```
+$ terminal-notifier -diagnose
+```
+
+Exits non-zero if notifications are not authorized. Start here when nothing
+shows up.
+
+#### `-help`, `-version`
+
+Print the help banner or the version.
+
+### Removed
+
+These are still accepted so existing scripts keep running. They print a warning
+and are otherwise ignored. The notification is still delivered.
+
+#### `-sender BUNDLE_ID`
+
+**Removed in 3.0.0.** It worked by swizzling terminal-notifier's own bundle
+identifier at runtime, which the `UserNotifications` framework does not allow.
+It reads the real, signed identity. Use `-activate` to bring an app forward on
+click.
+
+#### `-appIcon PATH`
+
+**Removed in 3.0.0.** macOS has no API to override a notification's icon. It
+always comes from the sending app's bundle. See [Custom icons](#custom-icons)
+for the way around this.
+
+#### `-ignoreDnD`
+
+**Effectively removed in 3.0.0.** It used to set a private flag. The public
+equivalent needs an entitlement Apple grants on request, which the released
+binary does not carry so this option is accepted but does nothing.
+
+
+## Interactive notifications
+
+`-action` and `-reply` behave differently from every other option: terminal-notifier
+**stays running** until the user responds then prints the outcome on stdout.
+That is what lets a script use the answer.
+
+```
+$ answer=$(terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30)
+$ case "$answer" in
+    Yes)      ./deploy.sh ;;
+    No)       echo 'cancelled' ;;
+    @TIMEOUT) echo 'no answer, not deploying' ;;
+  esac
+```
+
+The output is one of:
+
+| Output | Meaning |
+|---|---|
+| the button's title | that button was clicked |
+| the typed text | `-reply` was answered |
+| `@ACTIONCLICKED` | the notification body was clicked, not a button |
+| `@CLOSED` | the notification was dismissed |
+| `@TIMEOUT` | `-timeout` expired (exit code 6) |
+
+Because the process waits, always pass `-timeout` in an unattended script
+otherwise it blocks forever.
+
+
+## Examples
+
+Notify when a long command finishes, whatever its result:
+
+```
+$ make build; terminal-notifier -message "build finished ($?)" -sound default
+```
+
+Pipe output straight in:
+
+```
+$ echo 'Piped Message Data!' | terminal-notifier -sound default
+```
+
+Open a URL on click:
+
+```
+$ terminal-notifier -title '💰' -message 'Check your Apple stock!' -open 'https://finance.yahoo.com/q?s=AAPL'
+```
+
+Activate an app on click, replacing the previous notification each time:
+
+```
+$ terminal-notifier -group 'address-book-sync' -title 'Address Book Sync' \
+    -subtitle 'Finished' -message 'Imported 42 contacts.' -activate 'com.apple.AddressBook'
+```
+
+Ask a question and wait for the answer:
+
+```
+$ terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30
+```
+
+Show progress under one notification, then clear it:
+
+```
+$ for step in 1 2 3; do
+    terminal-notifier -message "Step $step of 3" -group work
+    sleep 2
+  done
+$ terminal-notifier -remove work
+```
+
+
+## When notifications do not appear
+
+Start with:
+
+```
+$ terminal-notifier -diagnose
+```
+
+It reports the authorization status, the alert style, whether sounds are
+enabled, whether Notification Center is running and whether Scheduled Summary
+is holding notifications back. It lists what to fix.
+
+The usual causes:
+
+* **Permission was never granted or was reset.** macOS asks once, the first
+  time. An OS upgrade or migration can clear it.
+* **A Focus mode is on.** Focus suppresses notifications silently.
+* **Scheduled Summary** is collecting them into a digest instead of showing
+  them now.
+* **Notification Center has crashed.** `killall NotificationCenter` restarts it.
+* **No GUI session.** Notifications belong to a logged-in user, so they cannot
+  be posted over SSH or from a launchd daemon running as root. terminal-notifier reports
+  this rather than hanging.
+
+To make macOS ask for permission again:
+
+```
+$ tccutil reset UserNotification fr.julienxx.oss.terminal-notifier
+```
+
+`tccutil` resolves that identifier through LaunchServices, so the app bundle
+must still be installed where it looks: `/Applications` or `~/Applications`.
+It fails with `OSStatus error -10814` when run against a build directory or
+after deleting the app.
+
+To keep notifications on screen until dismissed, set System Settings →
+Notifications → terminal-notifier → alert style to **Alerts**. This is a
+per-application user setting. It cannot be chosen per notification.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Usage error. No `-message`, `-remove` or `-list` |
+| 2 | Invalid argument, such as a malformed `-open` URL or an unreadable `-message` |
+| 3 | Notifications are not authorized |
+| 4 | Timed out reaching the notification service. Usually no GUI session |
+| 5 | The notification service refused the request |
+| 6 | `-timeout` expired waiting for `-action` or `-reply` |
+
+
+## Custom icons
+
+The icon on a notification always comes from the bundle that sent it and macOS
+offers no way to override it per notification. A custom icon therefore means a
+custom copy of the app:
+
+```
+$ make icon ICON=~/logo.png APP_NAME=deploy-notifier
+$ build/deploy-notifier.app/Contents/MacOS/terminal-notifier -message 'Deployed'
+```
+
+![custom icon](assets/custom-icon.png)
+
+A PNG or JPEG is converted into a full multi-resolution `.icns`. An existing
+`.icns` is used as-is.
+
+The copy gets its own bundle identifier
+(`fr.julienxx.oss.terminal-notifier.deploy-notifier`), which is exactly what
+gives it a separate icon. It follows that it also gets its own entry in System
+Settings → Notifications and asks for permission separately the first time you
+use it.
+
+
+## Building from source
+
+Only the Command Line Tools are needed. `xcode-select --install` is enough
+and a full Xcode installation is not required.
 
 ```
 $ make app        # -> build/terminal-notifier.app (universal, ad-hoc signed)
 $ make install    # -> /Applications, plus a symlink in /usr/local/bin
 ```
 
-`make help` lists everything. An Xcode project is also included if you prefer
-it, but nothing in the build depends on it.
+`make help` lists every target. An Xcode project is included as well, but
+nothing in the build depends on it.
 
 ### Checking that it works
 
@@ -86,14 +485,12 @@ it, but nothing in the build depends on it.
 $ make doctor
 ```
 
-`make doctor` verifies every option this README documents, and tells you what is
-wrong when something does not work. It reports the build (universal, signed,
-deployment target), the environment (authorization, alert style, sounds,
-whether Notification Center is running), then exercises each option in turn.
+`make doctor` verifies every option documented here and reports what is wrong
+when something does not work. It checks the build (universal, signed,
+deployment target), the environment then exercises each option in turn.
 
-Some things only a person can judge — whether a sound was audible, whether a
-button click did the right thing, whether a reply arrived — so `make doctor`
-prompts you for those and waits.
+Some things only a person can judge, like whether a sound was audible or whether
+a click did the right thing. terminal-notifier prompts you for those and waits:
 
 ```
 Delivery
@@ -107,328 +504,93 @@ Checks that need you
         Did you HEAR a notification sound? [y/n]
 ```
 
-Checks that need a notification are **skipped, not failed**, when notifications
-are unavailable — over SSH, in CI, or before permission has been granted — so
-the suite is safe to run anywhere. It exits non-zero only for a real problem.
 
 ```
-$ make test          # everything that runs without a person (doctor + Ruby specs)
-$ make test-native   # just the doctor's unattended checks, no Ruby needed
-$ make test-ruby     # the Ruby gem specs
+$ make test
 ```
 
-### Custom icons
+`make test` is `make doctor` minus the interactive checks, plus the Ruby specs.
+It needs no notification permission and no person, so it is what CI runs.
 
-Because the icon comes from the bundle, `make icon` builds a copy of the app
-carrying your image:
+
+## Differences from version 2
+
+Version 3 rebuilds terminal-notifier on Apple's `UserNotifications` framework because
+the `NSUserNotification` API it used before was deprecated in macOS 11.
+Everyday use is unchanged `-message`, `-title`, `-group`, `-remove`, `-list` and the click actions all work the same
+way but three options could not be carried over and two behave differently.
+
+### Removed
+
+| Option | Why |
+|---|---|
+| `-sender` | Worked by swizzling terminal-notifier's bundle identifier at runtime. `UNUserNotificationCenter` reads the real signed identity so there is nothing to override.  |
+| `-appIcon` | Set a private, undocumented property. Notification content has no icon property at all in the public API, the icon always comes from the sending bundle. See [Custom icons](#custom-icons). |
+| `-ignoreDnD` | Set a private flag. The public equivalent (a time-sensitive interruption level) needs an entitlement Apple grants on request, which the released binary does not carry. |
+
+All three are still **accepted** and print a warning, so existing scripts keep
+running rather than failing outright.
+
+### Changed
+
+* **`-contentImage` takes local files only.** Version 2 accepted remote URLs.
+  The attachment API does not. Download the image first if you need this. It
+  also rejects formats macOS will not attach such as `.icns`.
+* **Minimum macOS is 10.14**, up from 10.10. `UNUserNotificationCenter` does
+  not exist before that. Stay on 2.0.0 for older systems.
+* **More exit codes.** Version 2 used only 0 and 1. Version 3 adds 2–6 to
+  distinguish a bad argument from a permissions problem from a timeout. Scripts
+  testing for a non-zero status are unaffected. Scripts testing for exactly `1`
+  should be checked.
+
+### Added
+
+* **`-action` and `-reply`** bring back action buttons and inline replies,
+  removed in 2.0.0 because the 1.7 implementation depended on private API. The
+  `UserNotifications` framework supports them properly. Note that these make terminal-notifier
+  wait for a response. See [Interactive notifications](#interactive-notifications).
+* **`-timeout`** bounds that wait.
+* **`-diagnose`** explains why a notification is not appearing, instead of
+  leaving you to guess.
+* **A universal binary.** Version 2 shipped Intel-only and ran under Rosetta on
+  Apple silicon.
+* **`make` build and `make doctor`** so that terminal-notifier can be built and verified
+  without installing Xcode.
+
+
+## Using it from Ruby
+
+A Ruby wrapper is published as a gem, which bundles the binary:
 
 ```
-$ make icon ICON=~/logo.png APP_NAME=deploy-notifier
-$ build/deploy-notifier.app/Contents/MacOS/terminal-notifier -message 'Deployed'
+$ gem install terminal-notifier
 ```
 
-A PNG or JPEG is converted to a full multi-resolution `.icns`; an existing
-`.icns` is used as-is. The copy gets its own bundle identifier
-(`fr.julienxx.oss.terminal-notifier.deploy-notifier`), which is what gives it a
-separate icon — and, as a consequence, its own entry in System Settings >
-Notifications and its own permission prompt the first time you use it.
+```ruby
+require 'terminal-notifier'
 
-## Usage
-
-```
-$ ./terminal-notifier.app/Contents/MacOS/terminal-notifier -[message|group|list] [VALUE|ID|ID] [options]
+TerminalNotifier.notify('Hello World', title: 'Ruby')
+TerminalNotifier.remove('mygroup')
+TerminalNotifier.list
 ```
 
-In order to use terminal-notifier, you have to call the binary _inside_ the
-application bundle.
+Interactive notifications return the answer, symbolised `:yes` for a `Yes`
+button, `:_timeout` if nobody responded and `false` if the notification could
+not be sent at all:
 
-The Ruby gem, which wraps this tool, _does_ have a bin wrapper. If installed
-you can simply do:
-
-```
-$ terminal-notifier -[message|group|list] [VALUE|ID|ID] [options]
-```
-
-This will obviously be a bit slower than using the tool without the wrapper.
-
-If you'd like notifications to stay on the screen until dismissed, go to System
-Settings -> Notifications -> terminal-notifier and change the style from Banners
-to Alerts. You cannot do this on a per-notification basis.
-
-If notifications do not appear at all, check that terminal-notifier is allowed to
-send them in System Settings -> Notifications, and that a Focus mode is not
-suppressing them. To make macOS ask for permission again:
-
-```
-$ tccutil reset UserNotification fr.julienxx.oss.terminal-notifier
+```ruby
+case TerminalNotifier.notify('Deploy?', action: 'Yes,No', timeout: 30)
+when :yes      then deploy
+when :no       then puts 'cancelled'
+when :_timeout then puts 'no answer'
+end
 ```
 
-`tccutil` resolves that identifier through LaunchServices, so the app bundle has
-to still be installed somewhere it looks — `/Applications` or `~/Applications`.
-Running it against a bundle sitting in a build directory, or after deleting the
-app, fails with `OSStatus error -10814`.
+A `:reply` result comes back as the raw string instead.
 
-`terminal-notifier -diagnose` reports the same information without changing
-anything, and is the better place to start.
+Requires Ruby 3.2 or newer. See the [Ruby README](Ruby/README.markdown) for the
+full API.
 
-
-### Example Uses
-
-Display piped data with a sound:
-```
-$ echo 'Piped Message Data!' | terminal-notifier -sound default
-```
-
-![Example 1](assets/Example_1.png)
-
-Attach an image to the notification:
-```
-$ terminal-notifier -title ProjectX -subtitle "new tag detected" -message "Finished" -contentImage ./logo.png
-```
-
-![Example 3](assets/Example_3.png)
-
-To change the *icon* rather than attach an image, see the Caveats section — it
-requires your own copy of the application bundle.
-
-Open an URL when the notification is clicked:
-```
-$ terminal-notifier -title '💰' -message 'Check your Apple stock!' -open 'http://finance.yahoo.com/q?s=AAPL'
-```
-
-![Example 4](assets/Example_4.png)
-
-Ask a question and branch on the answer:
-```
-$ case "$(terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30)" in
-    Yes)      echo "deploying" ;;
-    No)       echo "cancelled" ;;
-    @TIMEOUT) echo "no answer"  ;;
-  esac
-```
-
-Open an app when the notification is clicked:
-```
-$ terminal-notifier -group 'address-book-sync' -title 'Address Book Sync' -subtitle 'Finished' -message 'Imported 42 contacts.' -activate 'com.apple.AddressBook'
-```
-
-![Example 5](assets/Example_5.png)
-
-
-### Options
-
-At a minimum, you must specify either the `-message` , the `-remove`, or the
-`-list` option.
-
--------------------------------------------------------------------------------
-
-`-message VALUE`  **[required]**
-
-The message body of the notification.
-
-If you pipe data into terminal-notifier, you can omit this option,
-and the piped data will become the message body instead.
-
--------------------------------------------------------------------------------
-
-`-title VALUE`
-
-The title of the notification. This defaults to ‘Terminal’.
-
--------------------------------------------------------------------------------
-
-`-subtitle VALUE`
-
-The subtitle of the notification.
-
--------------------------------------------------------------------------------
-
-`-sound NAME`
-
-Play the `NAME` sound when the notification appears.
-Sound names are listed in `/System/Library/Sounds`.
-
-Use the special `NAME` “default” for the default notification sound.
-
--------------------------------------------------------------------------------
-
-`-group ID`
-
-Specifies the notification’s ‘group’. For any ‘group’, only _one_
-notification will ever be shown, replacing previously posted notifications.
-
-A notification can be explicitly removed with the `-remove` option (see
-below).
-
-Example group IDs:
-
-* The sender’s name (to scope the notifications by tool).
-* The sender’s process ID (to scope the notifications by a unique process).
-* The current working directory (to scope notifications by project).
-
--------------------------------------------------------------------------------
-
-`-remove ID`  **[required]**
-
-Remove a previous notification from the `ID` ‘group’, if one exists.
-
-Use the special `ID` “ALL” to remove all messages.
-
--------------------------------------------------------------------------------
-
-`-list ID` **[required]**
-
-Lists details about the specified ‘group’ `ID`.
-
-Use the special `ID` “ALL” to list details about all currently active messages.
-
-The output of this command is tab-separated, which makes it easy to parse.
-
--------------------------------------------------------------------------------
-
-`-activate ID`
-
-Activate the application specified by `ID` when the user clicks the
-notification.
-
-You can find the bundle identifier (`CFBundleIdentifier`) of an application in its `Info.plist` file
-_inside_ the application bundle.
-
-Examples application IDs are:
-
-* `com.apple.Terminal` to activate Terminal.app
-* `com.apple.Safari` to activate Safari.app
-
--------------------------------------------------------------------------------
-
-`-action TITLE`
-
-Add an action button labelled `TITLE`. Pass a comma separated list, or repeat
-the option, for several buttons.
-
-Unlike every other option, this **waits** for the user: the tool stays running
-until the notification is answered, then prints the title of the button that was
-clicked on stdout. That is what lets a script branch on the answer, and it is
-why `-timeout` exists.
-
-```
-$ terminal-notifier -message 'Deploy to production?' -action 'Yes,No' -timeout 30
-Yes
-```
-
-macOS shows the buttons when you hover over the notification (or immediately, if
-you have set the style to Alerts).
-
-Output is one of the button titles, or:
-
-* `@ACTIONCLICKED` — the notification body was clicked rather than a button
-* `@CLOSED` — the notification was dismissed
-* `@TIMEOUT` — `-timeout` expired (exit code 6)
-
--------------------------------------------------------------------------------
-
-`-reply [PROMPT]`
-
-Add a text field to the notification, optionally with `PROMPT` as placeholder
-text. Waits like `-action` and prints what was typed.
-
-```
-$ terminal-notifier -message "What's your name?" -reply 'type here'
-Alice
-```
-
--------------------------------------------------------------------------------
-
-`-timeout SECONDS`
-
-How long to wait for a response to `-action` or `-reply`. Without it the tool
-waits indefinitely. On expiry it prints `@TIMEOUT` and exits 6.
-
-Has no effect without `-action` or `-reply`, since every other mode returns
-immediately.
-
--------------------------------------------------------------------------------
-
-`-diagnose`
-
-Report everything that determines whether a notification will appear —
-authorization status, alert style, sound and preview settings, whether
-NotificationCenter is running, and whether Scheduled Summary is holding
-notifications back — then exit. Exits non-zero if notifications are not
-authorized.
-
-```
-$ terminal-notifier -diagnose
-```
-
-Start here if notifications silently fail to show up.
-
--------------------------------------------------------------------------------
-
-`-sender ID`
-
-**Removed in 3.0.0.** Accepted but ignored, with a warning.
-
-This worked by swizzling terminal-notifier's own bundle identifier at runtime.
-The UserNotifications framework reads the real, signed bundle identity, so
-there is no way to reimplement it. Use `-activate` to bring an application
-forward when the notification is clicked.
-
--------------------------------------------------------------------------------
-
-`-appIcon PATH`
-
-**Removed in 3.0.0.** Accepted but ignored, with a warning.
-
-`UNNotificationContent` has no icon property at all — the icon always comes from
-the application bundle. See the Caveats section for the custom-bundle
-workaround.
-
--------------------------------------------------------------------------------
-
-`-contentImage PATH`
-
-Specify an image `PATH` to attach inside of the notification.
-
-Local file paths only. Earlier versions accepted remote URLs; the attachment API
-does not, so download the image first if you need this.
-
--------------------------------------------------------------------------------
-
-`-open URL`
-
-Open `URL` when the user clicks the notification. This can be a web or file URL,
-or any custom URL scheme.
-
--------------------------------------------------------------------------------
-
-`-execute COMMAND`
-
-Run the shell command `COMMAND` when the user clicks the notification.
-
--------------------------------------------------------------------------------
-
-`-ignoreDnD`
-
-Request delivery even when Do Not Disturb is enabled. **Best effort only — in
-most builds this does nothing.**
-
-This previously worked by setting a private ivar. The public equivalent is a
-time-sensitive interruption level, which requires an Apple-granted entitlement
-that the released binary does not carry. The flag is still accepted so existing
-scripts keep working.
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Usage error — no `-message`, `-remove` or `-list` given |
-| 2 | Invalid argument, e.g. a malformed `-open` URL |
-| 3 | Notifications are not authorized for this application |
-| 4 | Timed out — usually no GUI session (over SSH, or launchd as root) |
-| 5 | The notification service refused the request |
-| 6 | `-timeout` expired waiting for `-action` or `-reply` |
 
 ## License
 
@@ -436,7 +598,7 @@ All the works are available under the MIT license. **Except** for
 ‘Terminal.icns’, which is a copy of Apple’s Terminal.app icon and as such is
 copyright of Apple.
 
-Copyright (C) 2012-2017 Eloy Durán <eloy.de.enige@gmail.com>, Julien Blanchard
+Copyright (C) 2012-2026 Eloy Durán <eloy.de.enige@gmail.com>, Julien Blanchard
 <julien@sideburns.eu>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
