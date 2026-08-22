@@ -134,9 +134,15 @@ else
   SKIPPED=$((SKIPPED + 2))
 fi
 
+# Its own source image: the attachment one may have been consumed by the
+# notification store, and in any case the two are unrelated.
+sips -s format png --resampleHeightWidth 512 512 \
+  /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns \
+  --out "$TMP/icon-source.png" >/dev/null 2>&1
+
 # The custom icon shot needs its own bundle, which is the whole point of it.
 printf "\n${B}Custom icon${Z}\n"
-if make icon ICON="$TMP/attach.png" APP_NAME=custom-icon >/dev/null 2>&1; then
+if make icon ICON="$TMP/icon-source.png" APP_NAME=custom-icon >"$TMP/icon.log" 2>&1; then
   ICON_BIN="build/custom-icon.app/Contents/MacOS/terminal-notifier"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "build/custom-icon.app" 2>/dev/null
@@ -157,6 +163,7 @@ if make icon ICON="$TMP/attach.png" APP_NAME=custom-icon >/dev/null 2>&1; then
   "$ICON_BIN" -remove ALL >/dev/null 2>&1
 else
   printf "  %-22s ${Y}skipped${Z} — make icon failed\n" "custom-icon"
+  sed "s/^/      /" "$TMP/icon.log" >&2
   SKIPPED=$((SKIPPED + 1))
 fi
 
