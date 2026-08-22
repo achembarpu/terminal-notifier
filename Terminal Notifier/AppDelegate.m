@@ -618,17 +618,36 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         // just dropping the image.
         TNError(@"[!] Could not attach '%@': no such file.", options[@"contentImage"]);
       } else {
-        NSError *attachError = nil;
-        UNNotificationAttachment *attachment =
-          [UNNotificationAttachment attachmentWithIdentifier:@"contentImage"
-                                                        URL:imageURL
-                                                    options:nil
-                                                      error:&attachError];
-        if (attachment) {
-          content.attachments = @[attachment];
-        } else {
+        // UNNotificationAttachment *moves* the file into the notification data
+        // store, which would delete the caller's image. Hand it a throwaway
+        // copy so the original survives.
+        NSFileManager *files = [NSFileManager defaultManager];
+        NSString *extension = [imageURL pathExtension];
+        NSString *name = [NSString stringWithFormat:@"terminal-notifier-%@%@",
+                          [[NSUUID UUID] UUIDString],
+                          extension.length > 0 ? [@"." stringByAppendingString:extension] : @""];
+        NSURL *copyURL = [NSURL fileURLWithPath:
+                           [NSTemporaryDirectory() stringByAppendingPathComponent:name]];
+
+        NSError *copyError = nil;
+        if (![files copyItemAtURL:imageURL toURL:copyURL error:&copyError]) {
           TNError(@"[!] Could not attach '%@': %@",
-                  options[@"contentImage"], attachError.localizedDescription);
+                  options[@"contentImage"], copyError.localizedDescription);
+        } else {
+          NSError *attachError = nil;
+          UNNotificationAttachment *attachment =
+            [UNNotificationAttachment attachmentWithIdentifier:@"contentImage"
+                                                          URL:copyURL
+                                                      options:nil
+                                                        error:&attachError];
+          if (attachment) {
+            content.attachments = @[attachment];
+          } else {
+            TNError(@"[!] Could not attach '%@': %@",
+                    options[@"contentImage"], attachError.localizedDescription);
+            // The copy was not consumed, so clean it up ourselves.
+            [files removeItemAtURL:copyURL error:NULL];
+          }
         }
       }
     }

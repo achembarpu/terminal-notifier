@@ -246,6 +246,20 @@ else
     bad "-contentImage attaches a local image" "${err:-nothing delivered}"
   fi
 
+  # UNNotificationAttachment moves the file it is given into the notification
+  # data store, so attaching must work from a copy or it destroys the caller's
+  # image.
+  clear_all
+  keep="$(mktemp -t doctor-keep).png"
+  sips -s format png --resampleHeightWidth 64 64 \
+    /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns \
+    --out "$keep" >/dev/null 2>&1
+  "$BIN" -message 'doctor: keeps the file' -contentImage "$keep" >/dev/null 2>&1
+  sleep 1
+  if [ -f "$keep" ]; then ok "-contentImage does not delete the source file"
+  else bad "-contentImage does not delete the source file" "the image was consumed by the attachment"; fi
+  rm -f "$keep"
+
   # A missing image must warn but still deliver.
   clear_all
   err="$("$BIN" -message 'doctor: missing image' -contentImage /nope/none.png 2>&1 >/dev/null)"
