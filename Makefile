@@ -43,6 +43,7 @@ help:
 	@echo '  make test                      everything that runs without a person'
 	@echo '  make test-native               the doctor'"'"'s unattended checks only'
 	@echo '  make test-ruby                 the Ruby gem specs'
+	@echo '  make screenshots               regenerate the images in assets/'
 	@echo '  make clean                     remove $(BUILD_DIR)'
 	@echo
 	@echo 'install may need sudo, depending on $(APPDIR) and $(PREFIX).'
@@ -143,6 +144,11 @@ test-native: app
 test-ruby:
 	@echo '==> ruby specs'
 	@cd Ruby && bundle exec rspec
+
+# Needs Screen Recording permission for the terminal you run it from.
+.PHONY: screenshots
+screenshots: app
+	@tools/screenshots.sh
 
 .PHONY: clean
 clean:
