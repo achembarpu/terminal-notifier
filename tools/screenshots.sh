@@ -27,6 +27,19 @@ else G=; R=; Y=; B=; Z=; fi
 
 fail() { printf "${R}%s${Z}\n" "$1" >&2; exit 1; }
 
+# Remove every notification and wait for the Notification Center overlay to
+# disappear. Without this a menu left open by the previous shot is still on
+# screen and ends up in the next capture.
+clear_screen() {
+  "$BIN" -remove ALL >/dev/null 2>&1
+  local i
+  for i in $(seq 1 30); do
+    "$GRAB" --window-id >/dev/null 2>&1 || return 0
+    sleep 0.5
+  done
+  return 0
+}
+
 [ -x "$BIN" ] || fail "no $BIN — run: make app"
 
 # The capture helper.
@@ -67,16 +80,15 @@ sleep 1
 TAKEN=0
 SKIPPED=0
 
-# shot <output name> <description> -- <terminal-notifier args...>
+# shot <output name> <settle seconds> <description> -- <terminal-notifier args...>
 shot() {
-  local name="$1" desc="$2"; shift 3   # drop the literal --
+  local name="$1" settle="$2" desc="$3"; shift 4   # drop the literal --
   printf "  %-22s %s\n" "$name" "$desc"
 
-  "$BIN" -remove ALL >/dev/null 2>&1
-  sleep 1
+  clear_screen
   "$BIN" "$@" >/dev/null 2>&1 &
   local poster=$!
-  sleep 2
+  sleep "$settle"
 
   local id
   id="$("$GRAB" --window-id 2>/dev/null)"
@@ -101,33 +113,38 @@ shot() {
   fi
 
   kill "$poster" 2>/dev/null; wait "$poster" 2>/dev/null
-  "$BIN" -remove ALL >/dev/null 2>&1
+  clear_screen
 }
 
 printf "${B}Capturing${Z}\n"
 
-shot message      "-message on its own" -- \
+shot message      2 "-message on its own" -- \
   -message 'Finished in 42s'
 
-shot title        "-title and -message" -- \
+shot title        2 "-title and -message" -- \
   -title 'Build' -message 'Finished in 42s'
 
-shot subtitle     "-title, -subtitle and -message" -- \
+shot subtitle     2 "-title, -subtitle and -message" -- \
   -title 'ProjectX' -subtitle 'new tag detected' -message 'v3.0.0 is ready'
 
 # A small image to attach, built from a system icon so the repo carries nothing.
 sips -s format png --resampleHeightWidth 256 256 \
   /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns \
   --out "$TMP/attach.png" >/dev/null 2>&1
-shot contentImage "-contentImage attachment" -- \
+shot contentImage 3 "-contentImage attachment" -- \
   -title 'Report' -subtitle 'weekly summary' -message 'Chart attached' \
   -contentImage "$TMP/attach.png"
 
 if [ "$ALERTS" = 1 ]; then
-  shot action "-action buttons" -- \
-    -title 'Deploy' -message 'Deploy to production?' -action 'Yes,No' -timeout 20
-  shot reply  "-reply text field" -- \
-    -title 'Standup' -message "What did you do yesterday?" -reply 'type your answer' -timeout 20
+  # A single -action is drawn as a plain button; several collapse into an
+  # "Options" menu, so one button makes the clearer picture.
+  #
+  # An alert takes several seconds to expand and draw its controls; capture too
+  # early and you get the collapsed banner instead.
+  shot action 10 "-action button" -- \
+    -title 'Deploy' -message 'Deploy to production?' -action 'Ship it' -timeout 30
+  shot reply  10 "-reply text field" -- \
+    -title 'Standup' -message "What did you do yesterday?" -reply 'type your answer' -timeout 30
 else
   printf "  %-22s ${Y}skipped${Z} — needs the Alerts style\n" "action"
   printf "  %-22s ${Y}skipped${Z} — needs the Alerts style\n" "reply"
@@ -147,9 +164,11 @@ if make icon ICON="$TMP/icon-source.png" APP_NAME=custom-icon >"$TMP/icon.log" 2
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "build/custom-icon.app" 2>/dev/null
   sleep 1
-  "$ICON_BIN" -title 'custom-icon' -message 'Built with make icon' >/dev/null 2>&1 &
+  clear_screen
+  "$ICON_BIN" -remove ALL >/dev/null 2>&1
+  "$ICON_BIN" -title 'Deploy' -message 'Shipped v3.0.0 to production' >/dev/null 2>&1 &
   poster=$!
-  sleep 2
+  sleep 3
   id="$("$GRAB" --window-id 2>/dev/null)"
   if [ -n "$id" ] && screencapture -x -o -l "$id" "$TMP/icon.raw.png" 2>/dev/null \
      && "$GRAB" --crop "$TMP/icon.raw.png" "$OUT/custom-icon.png"; then
