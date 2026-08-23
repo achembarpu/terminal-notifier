@@ -217,7 +217,12 @@ Open a URL. Web, file or any custom scheme.
 
 ```
 $ terminal-notifier -message 'Build failed' -open 'https://ci.example.com/build/42'
+$ terminal-notifier -message 'Reply needed' -open 'msteams:/l/chat/0/0'
 ```
+
+Any scheme works, including deeplinks with no host such as `msteams:`,
+`mailto:` and `tel:`. The value needs a scheme, so pass a file as
+`file:///path` rather than a bare path.
 
 #### `-execute COMMAND`
 
