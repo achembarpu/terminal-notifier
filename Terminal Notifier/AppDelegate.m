@@ -744,8 +744,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     for (UNNotification *notification in notifications) {
       NSString *deliveredGroupID = notification.request.content.userInfo[@"groupID"];
       if ([@"ALL" isEqualToString:groupID] || [deliveredGroupID isEqualToString:groupID]) {
-        printf("* Removing previously sent notification, which was sent on: %s\n",
-               [[notification.date description] UTF8String]);
+        fprintf(stderr, "* Removing previously sent notification, which was sent on: %s\n",
+                [[notification.date description] UTF8String]);
         [identifiers addObject:notification.request.identifier];
       }
     }
