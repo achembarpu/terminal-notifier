@@ -44,3 +44,8 @@ Style/SpecialGlobalVars:
 # Splitting it up to satisfy a line count would make it harder to follow.
 Metrics/ModuleLength:
   Max: 130
+
+# Requiring MFA in the gemspec forces every maintainer to enable MFA on their
+# RubyGems account before they can push. Left off deliberately.
+Gemspec/RequireMFA:
+  Enabled: false

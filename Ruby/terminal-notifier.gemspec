@@ -21,8 +21,7 @@ Gem::Specification.new do |gem|
   gem.metadata = {
     'source_code_uri' => gem.homepage,
     'bug_tracker_uri' => "#{gem.homepage}/issues",
-    'changelog_uri' => "#{gem.homepage}/releases",
-    'rubygems_mfa_required' => 'true'
+    'changelog_uri' => "#{gem.homepage}/releases"
   }
 
   gem.executables   = ['terminal-notifier']
