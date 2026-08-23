@@ -169,8 +169,13 @@ release:
 	@gemv=$$(sed -n "s/.*VERSION = '\(.*\)'.*/\1/p" Ruby/lib/terminal-notifier/version.rb); \
 	  test "$$gemv" = '$(VERSION)' \
 	  || { echo "version mismatch: plist $(VERSION), gem $$gemv"; exit 1; }
-	@git rev-parse -q --verify 'refs/tags/$(VERSION)' >/dev/null \
-	  && { echo 'tag $(VERSION) already exists'; exit 1; } || true
+	@# `make release` tags, so `make release PUBLISH=1` finds a tag already
+	@# there. Accept it, but only when it names the commit being released.
+	@if git rev-parse -q --verify 'refs/tags/$(VERSION)' >/dev/null; then \
+	    test "$$(git rev-parse '$(VERSION)^{commit}')" = "$$(git rev-parse HEAD)" \
+	      || { echo 'tag $(VERSION) points at $$(git rev-parse --short "$(VERSION)^{commit}"), not HEAD'; \
+	           echo 'move it with: git tag -f -a $(VERSION) -m $(VERSION)'; exit 1; }; \
+	  fi
 	@echo '    version      $(VERSION)'
 	@echo '    branch       $(RELEASE_BRANCH) in sync with origin'
 	@echo '    tree         clean'
@@ -193,7 +198,8 @@ release:
 	  || { echo 'the gem has no binary in it'; exit 1; }
 	@echo '    gem contains the binary'
 	@echo
-	@git tag -a '$(VERSION)' -m '$(VERSION)'
+	@git rev-parse -q --verify 'refs/tags/$(VERSION)' >/dev/null \
+	  || git tag -a '$(VERSION)' -m '$(VERSION)'
 	@echo "==> tagged $(VERSION) (local only)"
 ifeq ($(PUBLISH),)
 	@echo
