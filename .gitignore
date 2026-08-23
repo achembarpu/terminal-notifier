@@ -8,3 +8,4 @@ Ruby/vendor
 build
 .build/
 Ruby/Gemfile.lock
+Ruby/pkg
