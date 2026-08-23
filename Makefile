@@ -40,7 +40,7 @@ help:
 	@echo '           [APP_NAME=my-tool]    (see "Custom icons" in the README)'
 	@echo '  make doctor                    check every documented option works'
 	@echo '                                 (prompts you for the interactive ones)'
-	@echo '  make test                      everything that runs without a person'
+	@echo '  make test                      every automated test'
 	@echo '  make test-native               the doctor'"'"'s unattended checks only'
 	@echo '  make test-ruby                 the Ruby gem specs'
 	@echo '  make screenshots               regenerate the images in assets/'
