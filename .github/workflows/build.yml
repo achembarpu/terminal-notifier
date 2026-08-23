@@ -76,8 +76,12 @@ jobs:
           sudo xcode-select -s /Library/Developer/CommandLineTools
           xcrun --find ibtool && { echo "::error::ibtool present, expected CLT-only"; exit 1; } || true
 
-      - name: make test-native
-        run: make test-native
+      # The script directly rather than `make test`: this job deliberately has no
+      # Ruby, and `make test` runs the gem specs too.
+      - name: Run the doctor's automated checks
+        run: |
+          make app
+          tests/doctor.sh --unattended
 
       - name: make icon
         run: |

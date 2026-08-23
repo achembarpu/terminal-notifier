@@ -41,8 +41,6 @@ help:
 	@echo '  make doctor                    check every documented option works'
 	@echo '                                 (prompts you for the interactive ones)'
 	@echo '  make test                      every automated test'
-	@echo '  make test-native               the doctor'"'"'s unattended checks only'
-	@echo '  make test-ruby                 the Ruby gem specs'
 	@echo '  make screenshots               regenerate the images in assets/'
 	@echo '  make clean                     remove $(BUILD_DIR)'
 	@echo
@@ -124,26 +122,20 @@ icon: app
 	echo "    it will ask for notification permission separately the first time"
 
 .PHONY: test
-test: test-native test-ruby
+test: app
+	@tests/doctor.sh --unattended
+	@echo
+	@echo '==> ruby specs'
+	@# Ruby/.ruby-version selects a supported interpreter, but only if a version
+	@# manager honours it. Say so plainly rather than failing inside bundler.
+	@cd Ruby && ruby -e 'abort "ruby #{RUBY_VERSION} is too old; the gem needs 3.2+.\n" \
+	  "Install it (rbenv install $$(cat .ruby-version)) or run with a newer ruby." \
+	  if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("3.2")'
+	@cd Ruby && bundle exec rspec
 
-# Everything here runs without a notification permission, so it works headless
-# and in CI. Actually delivering a notification needs a TCC grant, which cannot
-# be given non-interactively — see test-delivery.
 .PHONY: doctor
 doctor: app
 	@tests/doctor.sh
-
-# Everything the doctor can check without a person. Delivery needs a granted
-# permission and a GUI session, so those checks report as skipped rather than
-# failed when they are unavailable, and the exit status stays 0.
-.PHONY: test-native
-test-native: app
-	@tests/doctor.sh --unattended
-
-.PHONY: test-ruby
-test-ruby:
-	@echo '==> ruby specs'
-	@cd Ruby && bundle exec rspec
 
 # Needs Screen Recording permission for the terminal you run it from.
 .PHONY: screenshots
