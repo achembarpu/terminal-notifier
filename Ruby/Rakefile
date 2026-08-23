@@ -36,10 +36,13 @@ task :update_build do
   puts "vendored #{archs.strip}"
 end
 
+# bundler/gem_tasks defines `build` and `release`, and `release` calls `build`.
+# Neither knows about the vendored application bundle, so without this the
+# published gem would contain the Ruby files and no binary at all.
+task build: :update_build
+
 desc 'Build gem'
-task gem: :update_build do
-  sh 'gem build terminal-notifier.gemspec'
-end
+task gem: :build
 
 desc 'Run specs'
 task :spec do
