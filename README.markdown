@@ -46,6 +46,17 @@ Or build it yourself, see
 $ make install
 ```
 
+⚠️ terminal-notifier is not notarized and I don't want to pay the Apple tax for
+now. macOS quarantines anything you download so the first run is blocked.
+To work around this:
+
+```
+$ xattr -dr com.apple.quarantine /path/to/terminal-notifier.app
+```
+
+This only affects downloaded copies. Homebrew and `make install` are not
+quarantined so they need nothing.
+
 
 ## Usage
 
