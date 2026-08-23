@@ -26,6 +26,7 @@ BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST" 2>/
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null)"
 
 PASS=0; FAIL=0; SKIP=0
+TNExitBadArgument=2
 PROBLEMS=()
 
 if [ -t 1 ]; then
@@ -226,6 +227,19 @@ else
   "$BIN" -title "$(printf 'has\ta tab')" -message "$(printf 'and\na newline')" >/dev/null 2>&1
   sleep 1
   is "tabs and newlines do not corrupt -list" "$(notifications)" "1"
+
+  # A deeplink with a scheme but no host must not be rejected as a bad
+  # argument.
+  clear_all
+  for url in 'msteams:/l/chat/0/0' 'mailto:someone@example.com' 'tel:+15551234'; do
+    "$BIN" -message 'doctor: deeplink' -open "$url" >/dev/null 2>&1 </dev/null
+    if [ "$?" = "$TNExitBadArgument" ]; then
+      bad "-open accepts $url" 'rejected as a bad argument'
+    else
+      ok "-open accepts $url"
+    fi
+    clear_all
+  done
 
   # The documented first-character escape.
   clear_all

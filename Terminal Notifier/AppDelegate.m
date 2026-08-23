@@ -399,10 +399,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
   if (defaults[@"open"]) {
     NSURL *url = [NSURL URLWithString:defaults[@"open"]];
-    if ((url && url.scheme && url.host) || [url isFileURL]) {
+    if (url != nil && url.scheme.length > 0) {
       options[@"open"] = defaults[@"open"];
     } else {
-      TNError(@"'%@' is not a valid URI.", defaults[@"open"]);
+      TNError(@"'%@' is not a valid URL.", defaults[@"open"]);
+      TNError(@"It needs a scheme, such as https://example.com or file:///tmp.");
       exit(TNExitBadArgument);
     }
   }
