@@ -305,6 +305,24 @@ else
   clear_all
   is "-reply times out with @TIMEOUT" \
      "$("$BIN" -message 'doctor: reply timeout' -reply 'type' -timeout 3 2>/dev/null)" "@TIMEOUT"
+
+  # A notification nobody is listening to any more must not be left on screen
+  # offering buttons that do nothing.
+  clear_all
+  "$BIN" -message 'doctor: timeout cleanup' -action Yes -timeout 3 >/dev/null 2>&1
+  sleep 1
+  is "a timed out notification is withdrawn" "$(notifications)" "0"
+
+  for signal in INT TERM HUP; do
+    clear_all
+    "$BIN" -message "doctor: SIG$signal" -reply 'type' -timeout 60 >/dev/null 2>&1 &
+    waiter=$!
+    sleep 2
+    kill "-$signal" "$waiter" 2>/dev/null
+    wait "$waiter" 2>/dev/null
+    sleep 1
+    is "SIG$signal withdraws the notification" "$(notifications)" "0"
+  done
   clear_all
 fi
 

@@ -114,6 +114,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 @property (nonatomic) BOOL launchedFromNotification;
 @property (nonatomic) BOOL awaitingAuthorization;
 @property (nonatomic) BOOL awaitingResponse;
+@property (nonatomic, strong) NSMutableArray *signalSources;
 @end
 
 @implementation AppDelegate
@@ -695,13 +696,23 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         // process lives. Exiting here would send the response to a relaunched
         // copy whose output goes nowhere.
         self.awaitingResponse = YES;
+        [self withdrawOnInterrupt:identifier];
 
         NSNumber *timeout = options[@"timeout"];
         if (timeout != nil) {
           dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                        (int64_t)(timeout.doubleValue * NSEC_PER_SEC)),
                          dispatch_get_main_queue(), ^{
-            [self reportResponse:TNResponseTimeout andExit:TNExitNoResponse];
+            // Withdraw it before giving up. Left behind, it keeps buttons and a
+            // reply field that nothing is listening to any more, and under the
+            // Alerts style it stays on screen until dismissed by hand.
+            [center removeDeliveredNotificationsWithIdentifiers:@[identifier]];
+            // Give the removal a moment to reach the notification service; it
+            // takes no completion handler, and exiting immediately can drop it.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+              [self reportResponse:TNResponseTimeout andExit:TNExitNoResponse];
+            });
           });
         }
         return;
@@ -778,6 +789,33 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
       exit(TNExitSuccess);
     });
   }];
+}
+
+// While waiting for a person, withdraw the notification if we are interrupted.
+// Otherwise it is left on screen offering buttons and a reply field that
+// nothing is listening to, and under the Alerts style it stays until dismissed
+// by hand.
+- (void)withdrawOnInterrupt:(NSString *)identifier;
+{
+  self.signalSources = [NSMutableArray array];
+
+  for (NSNumber *number in @[@(SIGINT), @(SIGTERM), @(SIGHUP)]) {
+    int signalNumber = number.intValue;
+    // The dispatch source only fires if the default disposition is suppressed.
+    signal(signalNumber, SIG_IGN);
+
+    dispatch_source_t source = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_SIGNAL, signalNumber, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(source, ^{
+      [[UNUserNotificationCenter currentNotificationCenter]
+        removeDeliveredNotificationsWithIdentifiers:@[identifier]];
+      // Let the removal reach the notification service before we go.
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                     dispatch_get_main_queue(), ^{ exit(TNExitNoResponse); });
+    });
+    dispatch_resume(source);
+    [self.signalSources addObject:source];
+  }
 }
 
 - (void)reportResponse:(NSString *)text andExit:(int)status;
