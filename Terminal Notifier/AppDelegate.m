@@ -706,7 +706,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
             // Withdraw it before giving up. Left behind, it keeps buttons and a
             // reply field that nothing is listening to any more, and under the
             // Alerts style it stays on screen until dismissed by hand.
-            [center removeDeliveredNotificationsWithIdentifiers:@[identifier]];
+            //
+            // Ask for the centre again rather than capturing it: capturing it
+            // here would retain the block that owns this one.
+            [[UNUserNotificationCenter currentNotificationCenter]
+              removeDeliveredNotificationsWithIdentifiers:@[identifier]];
             // Give the removal a moment to reach the notification service; it
             // takes no completion handler, and exiting immediately can drop it.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),

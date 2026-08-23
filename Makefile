@@ -13,7 +13,10 @@ BUNDLE_ID := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' '$(P
 MIN_MACOS := 10.14
 ARCHS     := -arch arm64 -arch x86_64
 FRAMEWORKS := -framework Cocoa -framework UserNotifications
-CFLAGS    := -fobjc-arc -std=gnu11 -Os -Wall -mmacosx-version-min=$(MIN_MACOS)
+# Override with `make app WARN=` if a new SDK introduces a warning you cannot
+# fix yet.
+WARN      ?= -Wall -Werror
+CFLAGS    := -fobjc-arc -std=gnu11 -Os $(WARN) -mmacosx-version-min=$(MIN_MACOS)
 
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(NAME).app

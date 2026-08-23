@@ -2,6 +2,7 @@
 
 require 'rbconfig'
 require 'shellwords'
+require 'time'
 
 require 'terminal-notifier/version'
 
@@ -231,7 +232,6 @@ module TerminalNotifier
     output = TerminalNotifier.execute(verbose, list: group)
     return if output.nil? || output.strip.empty?
 
-    require 'time'
     # Drop the header row.
     notifications = output.split("\n")[1..].to_a.map { |line| TerminalNotifier.parse_list_row(line) }
 
