@@ -20,6 +20,13 @@ CFLAGS    := -fobjc-arc -std=gnu11 -Os $(WARN) -mmacosx-version-min=$(MIN_MACOS)
 
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(NAME).app
+RELEASE_ZIP := $(BUILD_DIR)/$(NAME)-$(VERSION).zip
+GEM       := Ruby/pkg/$(NAME)-$(VERSION).gem
+
+# Publishing cannot be undone, so `make release` only prepares. PUBLISH=1 also
+# pushes the tag, the GitHub release and the gem.
+PUBLISH   ?=
+RELEASE_BRANCH ?= master
 
 # Where `make install` puts things. /Applications keeps the bundle somewhere
 # LaunchServices scans, which notification permissions depend on.
@@ -45,6 +52,8 @@ help:
 	@echo '                                 (prompts you for the interactive ones)'
 	@echo '  make test                      every automated test'
 	@echo '  make screenshots               regenerate the images in assets/'
+	@echo '  make release                   check, build and tag a release'
+	@echo '           [PUBLISH=1]           also push the tag, release and gem'
 	@echo '  make clean                     remove $(BUILD_DIR)'
 	@echo
 	@echo 'install may need sudo, depending on $(APPDIR) and $(PREFIX).'
@@ -144,6 +153,66 @@ doctor: app
 .PHONY: screenshots
 screenshots: app
 	@tools/screenshots.sh
+
+.PHONY: release
+release:
+	@echo '==> checking'
+	@test -z "$$(git status --porcelain)" \
+	  || { echo 'working tree is not clean'; exit 1; }
+	@test "$$(git rev-parse --abbrev-ref HEAD)" = '$(RELEASE_BRANCH)' \
+	  || { echo "not on $(RELEASE_BRANCH) (on $$(git rev-parse --abbrev-ref HEAD))"; exit 1; }
+	@git fetch --quiet origin
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/$(RELEASE_BRANCH))" \
+	  || { echo 'HEAD and origin/$(RELEASE_BRANCH) differ; push or pull first'; exit 1; }
+	@# The plist and the gem carry the version separately. They must agree, or
+	@# the tag, the zip and the gem end up describing different builds.
+	@gemv=$$(sed -n "s/.*VERSION = '\(.*\)'.*/\1/p" Ruby/lib/terminal-notifier/version.rb); \
+	  test "$$gemv" = '$(VERSION)' \
+	  || { echo "version mismatch: plist $(VERSION), gem $$gemv"; exit 1; }
+	@git rev-parse -q --verify 'refs/tags/$(VERSION)' >/dev/null \
+	  && { echo 'tag $(VERSION) already exists'; exit 1; } || true
+	@echo '    version      $(VERSION)'
+	@echo '    branch       $(RELEASE_BRANCH) in sync with origin'
+	@echo '    tree         clean'
+	@echo
+	@echo '==> testing'
+	@$(MAKE) --no-print-directory test
+	@echo
+	@echo '==> building the release artifacts'
+	@$(MAKE) --no-print-directory app
+	@rm -f '$(RELEASE_ZIP)'
+	@# Same shape as every previous release: the app bundle and the README.
+	@cp README.markdown '$(BUILD_DIR)/README.markdown'
+	@cd '$(BUILD_DIR)' && zip -q -r -y '$(NAME)-$(VERSION).zip' '$(NAME).app' README.markdown
+	@rm -f '$(BUILD_DIR)/README.markdown'
+	@echo "    $(RELEASE_ZIP)  ($$(du -h '$(RELEASE_ZIP)' | cut -f1))"
+	@cd Ruby && bundle exec rake build >/dev/null
+	@echo "    $(GEM)"
+	@# A gem without the binary is useless, and easy to ship by accident.
+	@tar -xOf '$(GEM)' data.tar.gz | tar -tzf - | grep -q 'MacOS/$(NAME)' \
+	  || { echo 'the gem has no binary in it'; exit 1; }
+	@echo '    gem contains the binary'
+	@echo
+	@git tag -a '$(VERSION)' -m '$(VERSION)'
+	@echo "==> tagged $(VERSION) (local only)"
+ifeq ($(PUBLISH),)
+	@echo
+	@echo 'Nothing has been published. To publish:'
+	@echo '    make release PUBLISH=1'
+	@echo 'or by hand:'
+	@echo '    git push origin $(VERSION)'
+	@echo '    gh release create $(VERSION) $(RELEASE_ZIP) --title $(VERSION)'
+	@echo '    gem push $(GEM)'
+	@echo
+	@echo 'To undo the tag:  git tag -d $(VERSION)'
+else
+	@echo
+	@echo '==> publishing'
+	git push origin '$(VERSION)'
+	gh release create '$(VERSION)' '$(RELEASE_ZIP)' --title '$(VERSION)' --generate-notes
+	gem push '$(GEM)'
+	@echo '==> published $(VERSION)'
+endif
 
 .PHONY: clean
 clean:
