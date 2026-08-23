@@ -172,7 +172,7 @@ $ terminal-notifier -message 'Done' -sound Glass
 ```
 
 A name that does not match a file is ignored and the notification is delivered
-silently.
+with the default sound.
 
 #### `-contentImage PATH`
 
