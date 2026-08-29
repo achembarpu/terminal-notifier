@@ -69,6 +69,97 @@ static NSString *TNSanitizeField(NSString *value)
   return result;
 }
 
+// Turns "30", "30s", "5m", "2h" or "1d" into seconds. A bare number means
+// seconds. NSScanner rather than -doubleValue, which reports 0 for input it
+// could not read at all and so cannot tell "0" apart from "soon".
+static BOOL TNParseDuration(NSString *value, NSTimeInterval *seconds)
+{
+  if (value == nil) return NO;
+
+  NSScanner *scanner = [NSScanner scannerWithString:value];
+  double amount = 0;
+  if (![scanner scanDouble:&amount]) return NO;
+
+  NSString *unit = [value substringFromIndex:[scanner scanLocation]];
+  unit = [unit stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+
+  double multiplier;
+  if      (unit.length == 0)              multiplier = 1;
+  else if ([unit isEqualToString:@"s"])   multiplier = 1;
+  else if ([unit isEqualToString:@"m"])   multiplier = 60;
+  else if ([unit isEqualToString:@"h"])   multiplier = 60 * 60;
+  else if ([unit isEqualToString:@"d"])   multiplier = 60 * 60 * 24;
+  else return NO; // trailing junk, or a unit we do not know
+
+  double result = amount * multiplier;
+  if (result <= 0) return NO;
+
+  *seconds = result;
+  return YES;
+}
+
+// Reads "09:15" or "2026-09-01 02:00" into the date components a calendar
+// trigger matches on.
+//
+// The two forms deliberately produce different component sets. A bare clock
+// time yields only hour and minute, which is what makes -at 09:15 mean "the
+// next 09:15": UNCalendarNotificationTrigger fires at the next moment matching
+// the components it was given, so there is no today-or-tomorrow arithmetic to
+// get wrong here. A full date additionally pins the year, month and day, so it
+// matches exactly once — and never, if it has already gone by.
+//
+// The formatter's locale is pinned to en_US_POSIX. Left on the user's own
+// locale, a 12-hour or non-Gregorian region would read these fixed formats
+// differently, or not at all.
+static BOOL TNParseTriggerDate(NSString *value, NSDateComponents **components)
+{
+  if (value == nil) return NO;
+
+  NSString *trimmed = [value stringByTrimmingCharactersInSet:
+                        [NSCharacterSet whitespaceCharacterSet]];
+
+  NSCalendar *calendar = [NSCalendar currentCalendar];
+  NSDateFormatter *formatter = [NSDateFormatter new];
+  formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+  formatter.timeZone = [NSTimeZone localTimeZone];
+
+  formatter.dateFormat = @"HH:mm";
+  NSDate *timeOnly = [formatter dateFromString:trimmed];
+  if (timeOnly != nil) {
+    *components = [calendar components:(NSCalendarUnitHour | NSCalendarUnitMinute)
+                              fromDate:timeOnly];
+    return YES;
+  }
+
+  for (NSString *format in @[@"yyyy-MM-dd HH:mm", @"yyyy-MM-dd'T'HH:mm"]) {
+    formatter.dateFormat = format;
+    NSDate *full = [formatter dateFromString:trimmed];
+    if (full == nil) continue;
+
+    *components = [calendar components:(NSCalendarUnitYear | NSCalendarUnitMonth |
+                                        NSCalendarUnitDay | NSCalendarUnitHour |
+                                        NSCalendarUnitMinute)
+                              fromDate:full];
+    return YES;
+  }
+
+  return NO;
+}
+
+// nextTriggerDate is declared on the two concrete trigger classes rather than on
+// the superclass a request hands back, so it can only be reached through a type
+// check. Returns nil for a request with no trigger, which is an immediate one.
+static NSDate *TNNextTriggerDate(UNNotificationTrigger *trigger)
+{
+  if ([trigger isKindOfClass:[UNCalendarNotificationTrigger class]]) {
+    return [(UNCalendarNotificationTrigger *)trigger nextTriggerDate];
+  }
+  if ([trigger isKindOfClass:[UNTimeIntervalNotificationTrigger class]]) {
+    return [(UNTimeIntervalNotificationTrigger *)trigger nextTriggerDate];
+  }
+  return nil;
+}
+
 static NSString *TNAuthorizationStatusName(UNAuthorizationStatus status)
 {
   switch (status) {
@@ -155,6 +246,9 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
          "       -reply [PROMPT]    Add a text field to the notification. Waits and prints what was typed.\n" \
          "       -timeout SECONDS   How long to wait for a response to -action or -reply. Defaults to\n" \
          "                          waiting indefinitely. Prints @TIMEOUT and exits 6 if it expires.\n" \
+         "       -in DURATION       Deliver after a delay instead of now, eg. 30s, 5m, 2h, 1d.\n" \
+         "       -at TIME           Deliver at a clock time such as 09:15, meaning the next one, or at\n" \
+         "                          a date such as '2026-09-01 02:00'. Cannot be combined with -in.\n" \
          "       -ignoreDnD         Request delivery even when Do Not Disturb is enabled. Best effort only:\n" \
          "                          this needs an Apple-granted entitlement that this build does not carry,\n" \
          "                          so it is usually a no-op. See the README.\n" \
@@ -444,6 +538,74 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     options[@"timeout"] = @(seconds);
   }
 
+  // -in and -at defer delivery. Both build a trigger here so that a bad value is
+  // rejected before we ask for authorization or touch the notification centre.
+  //
+  // A value NSUserDefaults could not read arrives as nil, exactly as it does for
+  // -message above. Left alone that is indistinguishable from the option not
+  // being given, and the notification would be delivered immediately instead of
+  // when it was asked for — the one failure worse than refusing outright. It
+  // happens whenever the value begins with a '-', which is read as the next flag.
+  for (NSString *option in @[@"-in", @"-at"]) {
+    NSString *key = [option substringFromIndex:1];
+    if (defaults[key] == nil && [arguments containsObject:option]) {
+      TNError(@"Could not read the %@ value.", option);
+      TNError(@"A value starting with '-' is read as the next option. Quote it with a");
+      TNError(@"leading space if you meant it literally.");
+      exit(TNExitBadArgument);
+    }
+  }
+
+  if (defaults[@"in"] && defaults[@"at"]) {
+    TNError(@"-in and -at cannot be combined. Use one or the other.");
+    exit(TNExitBadArgument);
+  }
+
+  if (defaults[@"in"] || defaults[@"at"]) {
+    // A scheduled notification fires long after this process is gone, and the
+    // response to a button or a reply field can only be printed while it is
+    // still alive to print it.
+    if (options[@"actions"] || options[@"reply"]) {
+      TNError(@"-action and -reply cannot be scheduled.");
+      TNError(@"terminal-notifier has to stay running to report the response, and a");
+      TNError(@"scheduled notification fires long after it has exited.");
+      exit(TNExitBadArgument);
+    }
+
+    UNNotificationTrigger *trigger = nil;
+
+    if (defaults[@"in"]) {
+      NSTimeInterval seconds = 0;
+      if (!TNParseDuration(defaults[@"in"], &seconds)) {
+        TNError(@"'%@' is not a duration.", defaults[@"in"]);
+        TNError(@"Expected a positive number of seconds, or one of 30s, 5m, 2h, 1d.");
+        exit(TNExitBadArgument);
+      }
+      trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:seconds
+                                                                   repeats:NO];
+    } else {
+      NSDateComponents *dateComponents = nil;
+      if (!TNParseTriggerDate(defaults[@"at"], &dateComponents)) {
+        TNError(@"'%@' is not a time.", defaults[@"at"]);
+        TNError(@"Expected a clock time such as 09:15, or a date such as '2026-09-01 02:00'.");
+        exit(TNExitBadArgument);
+      }
+      trigger = [UNCalendarNotificationTrigger triggerWithDateMatchingComponents:dateComponents
+                                                                         repeats:NO];
+
+      // Ask the trigger when it would next fire. A fully specified date that has
+      // already gone by has no next match, which is a more reliable "in the
+      // past" test than comparing dates ourselves. A bare clock time always has
+      // one, so this can only reject the dated form.
+      if (TNNextTriggerDate(trigger) == nil) {
+        TNError(@"'%@' has already passed.", defaults[@"at"]);
+        exit(TNExitBadArgument);
+      }
+    }
+
+    options[@"trigger"] = trigger;
+  }
+
   BOOL hasMessage = (message != nil && message.length > 0);
 
   if (remove) {
@@ -677,7 +839,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     UNNotificationRequest *request =
       [UNNotificationRequest requestWithIdentifier:identifier
                                            content:content
-                                           trigger:nil];
+                                           trigger:options[@"trigger"]];
 
     [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
       if (error) {
@@ -721,6 +883,17 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
           });
         }
         return;
+      }
+
+      // A scheduled request is registered rather than shown: the notification
+      // service owns it now and will present it long after this process is gone.
+      // Say when it is due on stderr, the same place -remove reports what it
+      // swept, so that stdout keeps meaning "the response to an interactive
+      // notification" and nothing else.
+      NSDate *fireDate = TNNextTriggerDate(options[@"trigger"]);
+      if (fireDate != nil) {
+        fprintf(stderr, "* Notification scheduled for: %s\n",
+                [[fireDate description] UTF8String]);
       }
 
       // The request is handed off and persisted at this point; presentation and

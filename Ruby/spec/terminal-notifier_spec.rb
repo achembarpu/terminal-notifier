@@ -56,6 +56,23 @@ RSpec.describe TerminalNotifier do
       expect(described_class.command_for(reply: false, ignoreDnD: nil))
         .to eq [TerminalNotifier::BIN_PATH]
     end
+
+    it 'passes -in through untouched' do
+      expect(described_class.command_for(message: 'later', in: '5m'))
+        .to eq [TerminalNotifier::BIN_PATH, '-message', 'later', '-in', '5m']
+    end
+
+    it 'passes an -at value containing a space as one argument' do
+      # IO.popen gets an argv array, so the space needs no quoting; it must not
+      # be split into two arguments or the binary sees a date with no time.
+      expect(described_class.command_for(message: 'later', at: '2026-09-01 02:00'))
+        .to eq [TerminalNotifier::BIN_PATH, '-message', 'later', '-at', '2026-09-01 02:00']
+    end
+
+    it 'stringifies a numeric -in' do
+      expect(described_class.command_for(in: 90))
+        .to eq [TerminalNotifier::BIN_PATH, '-in', '90']
+    end
   end
 
   describe '.execute' do

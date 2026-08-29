@@ -289,6 +289,56 @@ On expiry it prints `@TIMEOUT` and exits 6.
 
 Has no effect on any other mode which all return immediately.
 
+### Scheduling
+
+#### `-in DURATION`
+
+Deliver after a delay instead of immediately. A bare number means seconds, or add
+a unit: `s`, `m`, `h`, `d`.
+
+```
+$ terminal-notifier -message 'Tea is ready' -in 3m
+$ terminal-notifier -message 'Stand up' -group posture -in 90
+```
+
+terminal-notifier hands the notification to macOS and exits straight away — it does
+not stay running to wait for it. The notification arrives even though the shell
+that scheduled it is long gone.
+
+#### `-at TIME`
+
+Deliver at a given time rather than after a delay. A clock time means the next time
+the clock reads that, today or tomorrow. A full date means one specific moment.
+Both are in local time.
+
+```
+$ terminal-notifier -message 'Standup' -at 09:15
+$ terminal-notifier -message 'Backup starting' -at '2026-09-01 02:00'
+```
+
+The date form must be written `YYYY-MM-DD HH:MM` and be in the future; a time that
+has already passed is an error rather than a notification that never arrives. The
+clock form is never in the past, since it always has a next occurrence — note that
+`-at 09:15` run at exactly 09:15:30 therefore means tomorrow.
+
+Cannot be combined with `-in`.
+
+#### Notes on scheduling
+
+`-action` and `-reply` cannot be scheduled. Their result is printed on stdout, and
+terminal-notifier exits as soon as the notification is registered, so nothing would
+be left listening for it.
+
+Give a scheduled notification a `-group` if you may want to cancel it. Without one
+it has no handle, and only `-remove ALL` will clear it.
+
+`-open`, `-execute` and `-activate` work as usual: they are stored with the
+notification and run when it is eventually clicked. Note that `-execute` then runs
+in the graphical session's environment, not the one that scheduled it.
+
+Scheduled notifications survive the scheduling process exiting, but they belong to
+this copy of terminal-notifier — moving or deleting the app bundle loses them.
+
 ### Diagnostics
 
 #### `-diagnose`

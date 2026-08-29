@@ -116,6 +116,15 @@ exits "no arguments is a usage error"          1
 exits "a malformed -open is rejected"          2 -message x -open 'not a uri'
 exits "a non-positive -timeout is rejected"    2 -message x -action Yes -timeout 0
 exits "an unreadable -message is rejected"     2 -message '[unescaped'
+exits "-in and -at cannot be combined"         2 -message x -in 5m -at 09:15
+exits "a scheduled -action is rejected"        2 -message x -in 5m -action Yes
+exits "a scheduled -reply is rejected"         2 -message x -in 5m -reply
+exits "a malformed -in is rejected"            2 -message x -in 5min
+exits "a zero -in is rejected"                 2 -message x -in 0
+exits "an unreadable -in is rejected"          2 -message x -in -5
+exits "a malformed -at is rejected"            2 -message x -at 25:00
+exits "an impossible date is rejected"         2 -message x -at '2026-02-30 02:00'
+exits "a past -at is rejected"                 2 -message x -at '2020-01-01 00:00'
 
 is "-version reports $VERSION" "$("$BIN" -version 2>/dev/null | awk '{print $2}' | tr -d '.')" "$(echo "$VERSION" | tr -d '.')"
 
@@ -123,13 +132,13 @@ banner="$("$BIN" -help 2>/dev/null)"
 missing=""
 for opt in -help -version -diagnose -message -remove -list -title -subtitle \
            -sound -group -activate -contentImage -open -execute -action \
-           -reply -timeout -ignoreDnD -sender -appIcon; do
+           -reply -timeout -ignoreDnD "-in DURATION" "-at TIME" -sender -appIcon; do
   case "$banner" in *"$opt"*) ;; *) missing="$missing $opt" ;; esac
 done
 if [ -z "$missing" ]; then
-  ok "the banner documents all 20 options"
+  ok "the banner documents all 22 options"
 else
-  bad "the banner documents all 20 options" "missing:$missing"
+  bad "the banner documents all 22 options" "missing:$missing"
 fi
 
 # =============================================================================
