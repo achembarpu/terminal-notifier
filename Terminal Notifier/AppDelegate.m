@@ -1,8 +1,6 @@
 #import "AppDelegate.h"
 #import <UserNotifications/UserNotifications.h>
 
-// Exit codes. Distinct values so callers can tell "you asked for the
-// impossible" apart from "the system would not let me".
 static const int TNExitSuccess        = 0;
 static const int TNExitUsage          = 1;
 static const int TNExitBadArgument    = 2;
@@ -11,29 +9,19 @@ static const int TNExitTimeout        = 4;
 static const int TNExitDeliveryFailed = 5;
 static const int TNExitNoResponse     = 6;
 
-// Nothing in this tool should ever take this long. Without a watchdog an
-// invocation with no GUI session (over SSH, or from launchd as root) hangs
-// forever with no output at all.
 static const NSTimeInterval TNTimeoutSeconds = 10.0;
 
-// Printed on stdout when an interactive notification resolves, so a caller can
-// branch on the outcome. These spellings match what the 1.7-era builds and
-// alerter emit, which is what TerminalNotifier.notify_result already parses.
+// TerminalNotifier.notify_result parses these exact spellings.
 static NSString * const TNResponseTimeout   = @"@TIMEOUT";
 static NSString * const TNResponseClosed    = @"@CLOSED";
 static NSString * const TNResponseClicked   = @"@ACTIONCLICKED";
 static NSString * const TNCategoryIdentifier = @"fr.julienxx.oss.terminal-notifier.actions";
 static NSString * const TNReplyActionIdentifier = @"reply";
 
-// When the user clicks a notification, macOS relaunches this bundle with no
-// arguments and delivers the response *after* applicationDidFinishLaunching
-// returns. Verified on macOS 26. So an argument-less launch has to linger
-// briefly instead of exiting, or -open/-execute/-activate never run.
+// macOS relaunches this bundle with no arguments and delivers the click
+// response after applicationDidFinishLaunching returns, so it has to linger.
 static const NSTimeInterval TNResponseGraceSeconds = 5.0;
 
-// Diagnostics go to stderr so that whoever ran the command actually sees them.
-// NSLog is reserved for the click-activation audit trail, which the README
-// documents as being readable in Console.app.
 static void TNError(NSString *format, ...)
 {
   va_list args;
@@ -54,10 +42,6 @@ static void TNError(NSString *format, ...)
 }
 @end
 
-// -list output is tab separated and newline delimited, so a tab or newline
-// inside a title or message silently corrupts the whole table. Collapse them to
-// spaces: one row per notification matters more than reproducing the text byte
-// for byte.
 static NSString *TNSanitizeField(NSString *value)
 {
   if (value == nil) return @"";
@@ -69,9 +53,6 @@ static NSString *TNSanitizeField(NSString *value)
   return result;
 }
 
-// Turns "30", "30s", "5m", "2h" or "1d" into seconds. A bare number means
-// seconds. NSScanner rather than -doubleValue, which reports 0 for input it
-// could not read at all and so cannot tell "0" apart from "soon".
 static BOOL TNParseDuration(NSString *value, NSTimeInterval *seconds)
 {
   if (value == nil) return NO;
@@ -89,7 +70,7 @@ static BOOL TNParseDuration(NSString *value, NSTimeInterval *seconds)
   else if ([unit isEqualToString:@"m"])   multiplier = 60;
   else if ([unit isEqualToString:@"h"])   multiplier = 60 * 60;
   else if ([unit isEqualToString:@"d"])   multiplier = 60 * 60 * 24;
-  else return NO; // trailing junk, or a unit we do not know
+  else return NO;
 
   double result = amount * multiplier;
   if (result <= 0) return NO;
@@ -98,19 +79,8 @@ static BOOL TNParseDuration(NSString *value, NSTimeInterval *seconds)
   return YES;
 }
 
-// Reads "09:15" or "2026-09-01 02:00" into the date components a calendar
-// trigger matches on.
-//
-// The two forms deliberately produce different component sets. A bare clock
-// time yields only hour and minute, which is what makes -at 09:15 mean "the
-// next 09:15": UNCalendarNotificationTrigger fires at the next moment matching
-// the components it was given, so there is no today-or-tomorrow arithmetic to
-// get wrong here. A full date additionally pins the year, month and day, so it
-// matches exactly once — and never, if it has already gone by.
-//
-// The formatter's locale is pinned to en_US_POSIX. Left on the user's own
-// locale, a 12-hour or non-Gregorian region would read these fixed formats
-// differently, or not at all.
+// A bare clock time yields only hour and minute, so the trigger fires at the
+// next match. en_US_POSIX so a 12-hour locale reads these formats the same.
 static BOOL TNParseTriggerDate(NSString *value, NSDateComponents **components)
 {
   if (value == nil) return NO;
@@ -146,9 +116,8 @@ static BOOL TNParseTriggerDate(NSString *value, NSDateComponents **components)
   return NO;
 }
 
-// nextTriggerDate is declared on the two concrete trigger classes rather than on
-// the superclass a request hands back, so it can only be reached through a type
-// check. Returns nil for a request with no trigger, which is an immediate one.
+// nextTriggerDate is on the two concrete trigger classes, not the superclass a
+// request hands back, so it needs a type check. nil for an immediate request.
 static NSDate *TNNextTriggerDate(UNNotificationTrigger *trigger)
 {
   if ([trigger isKindOfClass:[UNCalendarNotificationTrigger class]]) {
@@ -281,9 +250,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   printf("%s %s.\n", appName, appVersion);
 }
 
-// Reports everything that decides whether a notification actually shows up.
-// Most "terminal-notifier stopped working" reports come down to one of these
-// rows, and none of them were previously observable from the command line.
 - (void)printDiagnostics;
 {
   NSBundle *bundle = [NSBundle mainBundle];
@@ -295,8 +261,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   printf("  macOS               %s\n",
          [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String]);
 
-  // A notification is attributed to a bundle identity, so an unsigned or
-  // relocated bundle is a common cause of silent failure.
   BOOL notificationCentreRunning = NO;
   for (NSRunningApplication *app in [[NSWorkspace sharedWorkspace] runningApplications]) {
     if ([app.bundleIdentifier isEqualToString:@"com.apple.notificationcenterui"]) {
@@ -321,13 +285,9 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
       if (@available(macOS 12.0, *)) {
         printf("  time sensitive      %s\n", [TNSettingName(settings.timeSensitiveSetting) UTF8String]);
-        // This is Scheduled Summary: notifications are held back and delivered
-        // in a digest, which looks exactly like nothing happening.
         printf("  scheduled delivery  %s\n", [TNSettingName(settings.scheduledDeliverySetting) UTF8String]);
       }
 
-      // Turn the rows above into advice, so a user does not have to know which
-      // ones matter.
       NSMutableArray<NSString *> *problems = [NSMutableArray array];
       if (settings.authorizationStatus == UNAuthorizationStatusDenied) {
         [problems addObject:[NSString stringWithFormat:
@@ -377,16 +337,13 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification;
 {
-  // Set the delegate before the app finishes launching, so that a response
-  // arriving because the user clicked a notification is seen by us rather
-  // than dropped on the floor.
+  // Set before launching finishes, or a click response arrives unhandled.
   [UNUserNotificationCenter currentNotificationCenter].delegate = self;
 
   [self armWatchdog];
 }
 
-// The watchdog exists to turn a silent hang into a diagnosable failure, but it
-// must not fire while the system permission dialog is waiting on a human.
+// Must not fire while the permission dialog is waiting on a human.
 - (void)armWatchdog;
 {
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TNTimeoutSeconds * NSEC_PER_SEC)),
@@ -421,8 +378,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     return; // exits from the completion handler
   }
 
-  // We were launched by a notification click; the delegate callback handles
-  // everything and exits.
   if (self.launchedFromNotification) return;
 
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -434,10 +389,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   NSString *sound    = defaults[@"sound"];
   NSString *title    = defaults[@"title"] ?: @"Terminal";
 
-  // A -message that NSUserDefaults could not parse arrives as nil, which is
-  // indistinguishable from "no -message given" unless we look at argv. Falling
-  // through to the stdin read below would then block forever on an open pipe,
-  // which is exactly what the Ruby wrapper hands us.
+  // A -message NSUserDefaults could not parse arrives as nil, which looks like
+  // no -message at all unless we check argv.
   if (message == nil && [arguments containsObject:@"-message"]) {
     TNError(@"Could not read the -message value.");
     TNError(@"If it begins with a character such as '[', '(', '{' or a quote, escape it:");
@@ -447,16 +400,10 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
   // If there is no message and data is piped to the application, use that
   // instead.
-  //
-  // Only when a message is actually needed: this read blocks until stdin sees
-  // EOF, and because it runs on the main thread it also blocks the watchdog.
-  // `-list`/`-remove` don't need a message, and reading stdin for them would
-  // hang indefinitely whenever stdin is a pipe that stays open.
   if (message == nil && remove == nil && list == nil && !isatty(STDIN_FILENO)) {
     NSData *inputData = [[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile];
     message = [[NSString alloc] initWithData:inputData encoding:NSUTF8StringEncoding];
-    // Drop the trailing newline a pipe almost always carries. Left in, it ends
-    // up inside the body and splits the tab-separated -list row in two.
+    // Drop the trailing newline a pipe carries, or it splits the -list row.
     while ([message hasSuffix:@"\n"] || [message hasSuffix:@"\r"]) {
       message = [message substringToIndex:message.length - 1];
     }
@@ -467,8 +414,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     exit(TNExitUsage);
   }
 
-  // Options that no longer exist. Warn and carry on rather than failing, so
-  // that existing scripts keep working instead of breaking outright.
   if (defaults[@"sender"]) {
     TNError(@"[!] -sender is no longer supported and will be ignored.");
     TNError(@"    It relied on overriding this tool's bundle identifier, which the");
@@ -506,8 +451,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     options[@"ignoreDnD"] = @YES;
   }
 
-  // Action button titles: -action may be repeated, and each value may itself be
-  // a comma separated list.
   NSMutableArray<NSString *> *actionTitles = [NSMutableArray array];
   for (NSUInteger i = 0; i + 1 < arguments.count; i++) {
     if (![arguments[i] isEqualToString:@"-action"]) continue;
@@ -519,8 +462,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   }
   if (actionTitles.count > 0) options[@"actions"] = actionTitles;
 
-  // -reply works with or without a placeholder, so it is detected in argv
-  // rather than through NSUserDefaults.
+  // -reply works with or without a placeholder, so it is read from argv.
   if ([arguments containsObject:@"-reply"]) {
     options[@"reply"] = @YES;
     NSString *placeholder = defaults[@"reply"];
@@ -538,14 +480,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     options[@"timeout"] = @(seconds);
   }
 
-  // -in and -at defer delivery. Both build a trigger here so that a bad value is
-  // rejected before we ask for authorization or touch the notification centre.
-  //
-  // A value NSUserDefaults could not read arrives as nil, exactly as it does for
-  // -message above. Left alone that is indistinguishable from the option not
-  // being given, and the notification would be delivered immediately instead of
-  // when it was asked for — the one failure worse than refusing outright. It
-  // happens whenever the value begins with a '-', which is read as the next flag.
+  // A value beginning with '-' is read as the next flag and arrives as nil,
+  // which would deliver the notification now instead of when it was asked for.
   for (NSString *option in @[@"-in", @"-at"]) {
     NSString *key = [option substringFromIndex:1];
     if (defaults[key] == nil && [arguments containsObject:option]) {
@@ -562,9 +498,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   }
 
   if (defaults[@"in"] || defaults[@"at"]) {
-    // A scheduled notification fires long after this process is gone, and the
-    // response to a button or a reply field can only be printed while it is
-    // still alive to print it.
+    // The response can only be printed while this process is still alive.
     if (options[@"actions"] || options[@"reply"]) {
       TNError(@"-action and -reply cannot be scheduled.");
       TNError(@"terminal-notifier has to stay running to report the response, and a");
@@ -593,10 +527,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
       trigger = [UNCalendarNotificationTrigger triggerWithDateMatchingComponents:dateComponents
                                                                          repeats:NO];
 
-      // Ask the trigger when it would next fire. A fully specified date that has
-      // already gone by has no next match, which is a more reliable "in the
-      // past" test than comparing dates ourselves. A bare clock time always has
-      // one, so this can only reject the dated form.
+      // A date that has gone by has no next match. A bare clock time always
+      // has one, so this only rejects the dated form.
       if (TNNextTriggerDate(trigger) == nil) {
         TNError(@"'%@' has already passed.", defaults[@"at"]);
         exit(TNExitBadArgument);
@@ -609,9 +541,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   BOOL hasMessage = (message != nil && message.length > 0);
 
   if (remove) {
-    // Removal is asynchronous. Delivery has to happen inside the completion
-    // handler, otherwise a `-remove X -message Y -group X` invocation races
-    // and can delete the notification it just posted.
+    // Removal is asynchronous, so deliver inside the completion handler or
+    // `-remove X -message Y -group X` deletes what it just posted.
     [self removeNotificationWithGroupID:remove completionHandler:^{
       if (!hasMessage) exit(TNExitSuccess);
       [self deliverNotificationWithTitle:title
@@ -630,9 +561,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
                               options:options
                                 sound:sound];
   } else if (arguments.count == 1) {
-    // Nothing to do and nothing on the command line. An interactive run with
-    // no arguments has already exited above (stdin is a tty then), so reaching
-    // here most likely means macOS relaunched us to deliver a click.
     [self waitForNotificationResponse];
   } else {
     [self printHelpBanner];
@@ -659,8 +587,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   return url;
 }
 
-// Resolve the current authorization state before trying to deliver, so that a
-// refusal produces an actionable message rather than silence.
 - (void)withAuthorization:(void (^)(void))block;
 {
   UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
@@ -683,8 +609,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
       case UNAuthorizationStatusNotDetermined:
       default: {
         UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionSound;
-        // macOS is about to ask the user; the watchdog must stand down until
-        // they answer.
+        // macOS is about to ask; the watchdog stands down until they answer.
         self.awaitingAuthorization = YES;
         [center requestAuthorizationWithOptions:opts
                               completionHandler:^(BOOL granted, NSError *error) {
@@ -729,8 +654,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     NSString *groupID = options[@"groupID"];
     if (groupID) content.threadIdentifier = groupID;
 
-    // Buttons and text fields only exist as part of a category, which has to be
-    // registered with the centre before the request is added.
+    // Buttons only exist as part of a category, registered before the request.
     NSArray<NSString *> *actionTitles = options[@"actions"];
     BOOL wantsReply = [options[@"reply"] boolValue];
     BOOL interactive = (actionTitles.count > 0 || wantsReply);
@@ -748,8 +672,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
                                          textInputPlaceholder:placeholder]];
       }
 
-      // The identifier is the index, so the title can be recovered verbatim
-      // from the notification's userInfo when the response comes back.
+      // The identifier is the index, so the title comes back from userInfo.
       [actionTitles enumerateObjectsUsingBlock:^(NSString *title, NSUInteger i, BOOL *stop) {
         [actions addObject:
           [UNNotificationAction actionWithIdentifier:[NSString stringWithFormat:@"action-%lu", (unsigned long)i]
@@ -777,14 +700,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
       if (![imageURL isFileURL]) {
         TNError(@"[!] -contentImage only accepts local file paths.");
       } else if (![[NSFileManager defaultManager] fileExistsAtPath:[imageURL path]]) {
-        // Check up front: the attachment object is created lazily, so an
-        // unreadable path would otherwise fail the whole delivery rather than
-        // just dropping the image.
+        // Checked up front, or an unreadable path fails the whole delivery.
         TNError(@"[!] Could not attach '%@': no such file.", options[@"contentImage"]);
       } else {
-        // UNNotificationAttachment *moves* the file into the notification data
-        // store, which would delete the caller's image. Hand it a throwaway
-        // copy so the original survives.
+        // UNNotificationAttachment moves the file into the notification store,
+        // which would delete the caller's image. Give it a throwaway copy.
         NSFileManager *files = [NSFileManager defaultManager];
         NSString *extension = [imageURL pathExtension];
         NSString *name = [NSString stringWithFormat:@"terminal-notifier-%@%@",
@@ -816,7 +736,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
       }
     }
 
-    // Metadata the click handler needs when the app is relaunched.
     NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
     if (options[@"bundleID"]) userInfo[@"bundleID"] = options[@"bundleID"];
     if (groupID)              userInfo[@"groupID"]  = groupID;
@@ -825,10 +744,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     if (actionTitles)         userInfo[@"actions"]  = actionTitles;
     content.userInfo = userInfo;
 
-    // Reusing an identifier is what makes a notification replace an earlier
-    // one, so it must only happen when the caller actually asked for a group.
-    // Sharing one identifier across all ungrouped notifications would make
-    // every new notification silently overwrite the previous one.
+    // Reusing an identifier replaces an earlier notification, so only with a group.
     NSString *identifier = groupID ?: [[NSUUID UUID] UUIDString];
 
     if (groupID) {
@@ -844,8 +760,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
       if (error) {
         TNError(@"Failed to deliver notification: %@", error.localizedDescription);
-        // Distinguish "you are not allowed" from "the request was bad", so a
-        // caller can tell a permissions problem from a broken argument.
         if ([error.domain isEqualToString:UNErrorDomain] &&
             error.code == UNErrorCodeNotificationsNotAllowed) {
           TNError(@"Run with -diagnose to see why.");
@@ -854,10 +768,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         exit(TNExitDeliveryFailed);
       }
       if (interactive) {
-        // A button or reply field is only useful if the caller can read what
-        // the user chose, and stdout is still connected to them only while this
-        // process lives. Exiting here would send the response to a relaunched
-        // copy whose output goes nowhere.
+        // stdout reaches the caller only while this process lives.
         self.awaitingResponse = YES;
         [self withdrawOnInterrupt:identifier];
 
@@ -866,16 +777,12 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
           dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                        (int64_t)(timeout.doubleValue * NSEC_PER_SEC)),
                          dispatch_get_main_queue(), ^{
-            // Withdraw it before giving up. Left behind, it keeps buttons and a
-            // reply field that nothing is listening to any more, and under the
-            // Alerts style it stays on screen until dismissed by hand.
-            //
-            // Ask for the centre again rather than capturing it: capturing it
-            // here would retain the block that owns this one.
+            // Withdraw it before giving up, or it keeps buttons nothing is
+            // listening to. Ask for the centre again rather than capturing it:
+            // capturing it here would retain the block that owns this one.
             [[UNUserNotificationCenter currentNotificationCenter]
               removeDeliveredNotificationsWithIdentifiers:@[identifier]];
-            // Give the removal a moment to reach the notification service; it
-            // takes no completion handler, and exiting immediately can drop it.
+            // The removal takes no completion handler, so let it land first.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
               [self reportResponse:TNResponseTimeout andExit:TNExitNoResponse];
@@ -885,20 +792,13 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         return;
       }
 
-      // A scheduled request is registered rather than shown: the notification
-      // service owns it now and will present it long after this process is gone.
-      // Say when it is due on stderr, the same place -remove reports what it
-      // swept, so that stdout keeps meaning "the response to an interactive
-      // notification" and nothing else.
+      // On stderr, so stdout keeps meaning the interactive response.
       NSDate *fireDate = TNNextTriggerDate(options[@"trigger"]);
       if (fireDate != nil) {
         fprintf(stderr, "* Notification scheduled for: %s\n",
                 [[fireDate description] UTF8String]);
       }
 
-      // The request is handed off and persisted at this point; presentation and
-      // sound are the notification service's job, not ours. There is nothing
-      // left to wait for, so exit immediately rather than on a timer.
       exit(TNExitSuccess);
     }];
   }];
@@ -909,8 +809,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 {
   UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
 
-  // Delivered, not pending: pending requests are ones that have not fired yet,
-  // and this tool always delivers immediately.
   [center getDeliveredNotificationsWithCompletionHandler:^(NSArray<UNNotification *> *notifications) {
     NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
 
@@ -969,10 +867,6 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   }];
 }
 
-// While waiting for a person, withdraw the notification if we are interrupted.
-// Otherwise it is left on screen offering buttons and a reply field that
-// nothing is listening to, and under the Alerts style it stays until dismissed
-// by hand.
 - (void)withdrawOnInterrupt:(NSString *)identifier;
 {
   self.signalSources = [NSMutableArray array];
@@ -1003,9 +897,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   exit(status);
 }
 
-// Maps a response on an interactive notification onto a single line of stdout.
-// Returns NO when the notification was not interactive, so the caller falls
-// through to the -open/-execute/-activate handling instead.
+// Maps a response onto a single line of stdout. Returns NO when the
+// notification was not interactive, so the caller runs the click action.
 - (BOOL)reportInteractiveResponse:(UNNotificationResponse *)response;
 {
   NSString *actionIdentifier = response.actionIdentifier;
@@ -1029,8 +922,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     return YES;
   }
 
-  // The body itself was clicked. Only meaningful as a reportable outcome when
-  // the notification was interactive; otherwise it means "run the click action".
+  // The body was clicked; only reportable when the notification was interactive.
   if ([actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier] &&
       self.awaitingResponse) {
     NSDictionary *userInfo = response.notification.request.content.userInfo;
@@ -1080,9 +972,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
 - (BOOL)activateAppWithBundleID:(NSString *)bundleID;
 {
-  // NSRunningApplication and NSWorkspace instead of ScriptingBridge: sending
-  // Apple events needs an Automation TCC grant that this tool does not ask
-  // for, so the ScriptingBridge path silently failed on modern macOS.
+  // Not ScriptingBridge: Apple events need an Automation TCC grant
+  // terminal-notifier never asks for.
   NSArray<NSRunningApplication *> *running =
     [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleID];
 
@@ -1122,8 +1013,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     return NO;
   }
 
-  // Drain the pipe fully before waiting. The old loop polled availableData and
-  // could deadlock once a chatty command filled the pipe buffer.
+  // Drain the pipe fully before waiting, or a chatty command deadlocks.
   NSData *output = [[pipe fileHandleForReading] readDataToEndOfFile];
   [task waitUntilExit];
 

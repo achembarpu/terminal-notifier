@@ -27,9 +27,8 @@ else G=; R=; Y=; B=; Z=; fi
 
 fail() { printf "${R}%s${Z}\n" "$1" >&2; exit 1; }
 
-# Remove every notification and wait for the Notification Center overlay to
-# disappear. Without this a menu left open by the previous shot is still on
-# screen and ends up in the next capture.
+# Without this a menu left open by the previous shot ends up in the next
+# capture.
 clear_screen() {
   "$BIN" -remove ALL >/dev/null 2>&1
   local i
@@ -136,11 +135,9 @@ shot contentImage 3 "-contentImage attachment" -- \
   -contentImage "$TMP/attach.png"
 
 if [ "$ALERTS" = 1 ]; then
-  # A single -action is drawn as a plain button; several collapse into an
-  # "Options" menu, so one button makes the clearer picture.
-  #
-  # An alert takes several seconds to expand and draw its controls; capture too
-  # early and you get the collapsed banner instead.
+  # One -action is a plain button; several collapse into an "Options" menu.
+  # An alert takes seconds to draw its controls, so capture late or you get
+  # the collapsed banner.
   shot action 10 "-action button" -- \
     -title 'Deploy' -message 'Deploy to production?' -action 'Ship it' -timeout 30
   shot reply  10 "-reply text field" -- \

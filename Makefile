@@ -1,7 +1,6 @@
 # terminal-notifier
 #
-# Builds with the Command Line Tools alone. The Xcode project is still there if
-# you prefer it, but nothing here needs it.
+# Builds with the Command Line Tools alone; the Xcode project is optional.
 
 SRC_DIR   := Terminal Notifier
 PLIST     := $(SRC_DIR)/Terminal Notifier-Info.plist
@@ -28,8 +27,7 @@ GEM       := Ruby/pkg/$(NAME)-$(VERSION).gem
 PUBLISH   ?=
 RELEASE_BRANCH ?= master
 
-# Where `make install` puts things. /Applications keeps the bundle somewhere
-# LaunchServices scans, which notification permissions depend on.
+# /Applications is scanned by LaunchServices, which permissions depend on.
 APPDIR    ?= /Applications
 PREFIX    ?= /usr/local
 
@@ -58,9 +56,6 @@ help:
 	@echo
 	@echo 'install may need sudo, depending on $(APPDIR) and $(PREFIX).'
 
-# Two source files that compile in a couple of seconds, and a directory name
-# containing a space. Rebuilding unconditionally is simpler and more reliable
-# than teaching make to track prerequisites through the quoting.
 .PHONY: app
 app:
 	@echo '==> building $(NAME) $(VERSION) (universal, macOS $(MIN_MACOS)+)'
@@ -96,9 +91,8 @@ uninstall:
 	rm -rf '$(APPDIR)/$(NAME).app'
 	rm -f '$(PREFIX)/bin/$(NAME)'
 
-# macOS has no API to override a notification's icon. It always comes from the
-# app bundle, so a custom icon means a custom bundle: its own name, its own
-# identifier and therefore its own row in System Settings > Notifications.
+# There is no API to override a notification's icon; it comes from the app
+# bundle. So a custom icon means a custom bundle, with its own identifier.
 .PHONY: icon
 icon: app
 	@if [ -z '$(ICON)' ]; then \

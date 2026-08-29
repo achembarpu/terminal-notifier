@@ -60,9 +60,8 @@ clear_all()     { "$BIN" -remove ALL >/dev/null 2>&1; sleep 1; }
 field()         { "$BIN" -list ALL 2>/dev/null | tail -n +2 | head -1 | cut -f"$1"; }
 
 # --- interactive helpers -----------------------------------------------------
-# /dev/tty can exist yet not be readable (inside a pipeline, or under some CI
-# runners). Existence alone is not enough: actually try to open it, or the
-# prompts below would fail and be recorded as broken features.
+# /dev/tty can exist yet not be readable, so try opening it rather than
+# testing for it. Otherwise the prompts below get recorded as broken features.
 TTY_OK=0
 if [ -e /dev/tty ] && (exec </dev/tty) 2>/dev/null; then TTY_OK=1; fi
 
@@ -269,9 +268,8 @@ else
     bad "-contentImage attaches a local image" "${err:-nothing delivered}"
   fi
 
-  # UNNotificationAttachment moves the file it is given into the notification
-  # data store, so attaching must work from a copy or it destroys the caller's
-  # image.
+  # UNNotificationAttachment moves the file it is given, so attaching must work
+  # from a copy or it destroys the caller's image.
   clear_all
   keep="$(mktemp -t doctor-keep).png"
   sips -s format png --resampleHeightWidth 64 64 \
