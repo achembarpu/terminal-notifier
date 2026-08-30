@@ -138,6 +138,9 @@ test: app
 	  "Install it (rbenv install $$(cat .ruby-version)) or run with a newer ruby." \
 	  if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("3.2")'
 	@cd Ruby && bundle exec rspec
+	@echo
+	@echo '==> rubocop'
+	@cd Ruby && bundle exec rubocop --disable-pending-cops
 
 .PHONY: doctor
 doctor: app

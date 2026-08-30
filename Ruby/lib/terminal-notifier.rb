@@ -212,12 +212,10 @@ module TerminalNotifier
   #
   # If no ‘group’ ID is given, all notifications are removed. Scheduled
   # notifications that have not fired yet are cancelled.
-  # rubocop:disable Naming/PredicateMethod -- `remove` is the public API name
-  def remove(group = 'ALL', verbose = false)
+  def remove(group = 'ALL', verbose = false) # rubocop:disable Naming/PredicateMethod
     TerminalNotifier.execute(verbose, remove: group)
     TerminalNotifier.succeeded?
   end
-  # rubocop:enable Naming/PredicateMethod
   module_function :remove
 
   LIST_FIELDS = %i[group title subtitle message delivered_at].freeze
