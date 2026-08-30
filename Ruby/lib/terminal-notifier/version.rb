@@ -6,5 +6,5 @@ module TerminalNotifier
   #
   # Note: this is *not* TerminalNotifier.version, which returns the macOS
   # product version the tool is running on.
-  VERSION = '3.0.0'
+  VERSION = '3.1.0'
 end
