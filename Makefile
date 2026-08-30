@@ -167,7 +167,7 @@ release:
 	@# there. Accept it, but only when it names the commit being released.
 	@if git rev-parse -q --verify 'refs/tags/$(VERSION)' >/dev/null; then \
 	    test "$$(git rev-parse '$(VERSION)^{commit}')" = "$$(git rev-parse HEAD)" \
-	      || { echo 'tag $(VERSION) points at $$(git rev-parse --short "$(VERSION)^{commit}"), not HEAD'; \
+	      || { echo "tag $(VERSION) points at $$(git rev-parse --short '$(VERSION)^{commit}'), not HEAD"; \
 	           echo 'move it with: git tag -f -a $(VERSION) -m $(VERSION)'; exit 1; }; \
 	  fi
 	@echo '    version      $(VERSION)'
