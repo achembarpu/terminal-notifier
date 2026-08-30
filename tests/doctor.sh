@@ -232,11 +232,27 @@ else
   "$BIN" -message 'doctor: at' -group sched2 -at '2027-03-04 05:06' >/dev/null 2>&1; sleep 1
   is "-at is scheduled too" "$(pending)" "2"
 
-  # Posting to the same group drops the pending request, which is also how this
-  # check cleans up after itself.
-  "$BIN" -message 'doctor: replaced' -group sched  >/dev/null 2>&1
-  "$BIN" -message 'doctor: replaced' -group sched2 >/dev/null 2>&1; sleep 1
-  is "posting to the group replaces the scheduled one" "$(pending)" "0"
+  # Posting to the same group drops the pending request.
+  "$BIN" -message 'doctor: replaced' -group sched  >/dev/null 2>&1; sleep 1
+  is "posting to the group replaces the scheduled one" "$(pending)" "1"
+
+  "$BIN" -remove sched2 >/dev/null 2>&1; sleep 1
+  is "-remove cancels a scheduled notification" "$(pending)" "0"
+
+  clear_all
+  "$BIN" -message 'doctor: x' -group s1 -in 1h >/dev/null 2>&1
+  "$BIN" -message 'doctor: y' -group s2 -at '2027-03-04 05:06' >/dev/null 2>&1; sleep 1
+  "$BIN" -remove ALL >/dev/null 2>&1; sleep 1
+  is "-remove ALL cancels every scheduled notification" "$(pending)" "0"
+
+  # -remove must not delete the notification the same invocation schedules.
+  clear_all
+  "$BIN" -message 'doctor: old' -group srace -in 1h >/dev/null 2>&1; sleep 1
+  "$BIN" -remove srace -message 'doctor: new' -group srace -in 2h >/dev/null 2>&1; sleep 1
+  is "-remove with a scheduled -message leaves one" "$(pending)" "1"
+  is "-remove with a scheduled -message keeps the new one" \
+     "$("$BIN" -list PENDING 2>/dev/null | tail -n +2 | head -1 | cut -f4)" "doctor: new"
+  "$BIN" -remove ALL >/dev/null 2>&1; sleep 1
   clear_all
 
   # -remove combined with -message must not race.

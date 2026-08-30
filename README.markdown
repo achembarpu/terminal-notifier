@@ -123,6 +123,18 @@ $ terminal-notifier -remove build
 $ terminal-notifier -remove ALL
 ```
 
+`-remove` also cancels a notification that was scheduled with `-in` or `-at` and
+has not fired yet. Schedule it with a `-group`, and later remove that group:
+
+```
+$ terminal-notifier -message 'Backup starting' -group backup -at 02:00
+$ terminal-notifier -remove backup
+```
+
+The second command cancels the first, so no notification is shown at 02:00.
+Without a `-group` a scheduled notification has no name to remove by, and only
+`-remove ALL` can cancel it.
+
 #### `-list ID`
 
 List delivered notifications in the `ID` group or `ALL` for every one. Output
@@ -136,9 +148,8 @@ build     Terminal              Finished in 42s   2026-08-23 10:22:16 +0000
 Tabs and newlines inside a field are replaced with spaces, so each notification
 is always exactly one row of five columns. An absent field is empty.
 
-Use `PENDING` for the notifications scheduled with [`-in`](#-in-duration) or
-[`-at`](#-at-time) that have not fired yet. The last column is when each one is
-due rather than when it was delivered:
+Use `PENDING` to see what `-in` and `-at` have scheduled that has not fired yet.
+The last column is when each one is due, and the soonest is listed first:
 
 ```
 $ terminal-notifier -list PENDING
@@ -146,8 +157,8 @@ GroupID   Title      Subtitle   Message           Scheduled For
 backup    Terminal              Starting          2026-09-01 02:00:00 +0000
 ```
 
-Soonest first. A scheduled notification appears here until it fires, and in
-`-list ALL` afterwards, never in both.
+A scheduled notification is listed here until it fires, and by `-list ALL` after
+it has, never by both.
 
 ### Content
 
@@ -329,10 +340,12 @@ $ terminal-notifier -message 'Standup' -at 09:15
 $ terminal-notifier -message 'Backup starting' -at '2026-09-01 02:00'
 ```
 
-The date form must be written `YYYY-MM-DD HH:MM` and be in the future; a time that
-has already passed is an error rather than a notification that never arrives. The
-clock form is never in the past, since it always has a next occurrence — note that
-`-at 09:15` run at exactly 09:15:30 therefore means tomorrow.
+The date form must be written `YYYY-MM-DD HH:MM`. A date in the past is an error,
+rather than a notification that silently never arrives.
+
+A clock time is never in the past, because there is always a next one. It has to
+still be coming up this minute, though: run `-at 09:15` at 09:15:30 and you get
+09:15 tomorrow.
 
 Cannot be combined with `-in`.
 
@@ -349,8 +362,9 @@ it has no handle, and only `-remove ALL` will clear it.
 notification and run when it is eventually clicked. Note that `-execute` then runs
 in the graphical session's environment, not the one that scheduled it.
 
-Scheduled notifications survive the scheduling process exiting, but they belong to
-this copy of terminal-notifier — moving or deleting the app bundle loses them.
+Once scheduled, the notification is held by macOS rather than by terminal-notifier,
+which is why it still arrives with the shell long gone. Use `-list PENDING` to
+check what is actually waiting.
 
 ### Diagnostics
 
@@ -629,6 +643,10 @@ running rather than failing outright.
   `UserNotifications` framework supports them properly. Note that these make terminal-notifier
   wait for a response. See [Interactive notifications](#interactive-notifications).
 * **`-timeout`** bounds that wait.
+* **`-in` and `-at`** schedule a notification instead of delivering it now.
+  terminal-notifier hands it to macOS and exits; the notification arrives even
+  though the shell that scheduled it is gone. `-list PENDING` shows what is
+  waiting and `-remove` cancels it. See [Scheduling](#scheduling).
 * **`-diagnose`** explains why a notification is not appearing, instead of
   leaving you to guess.
 * **A universal binary.** Version 2 shipped Intel-only and ran under Rosetta on

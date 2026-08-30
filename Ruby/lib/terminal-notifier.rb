@@ -210,7 +210,8 @@ module TerminalNotifier
   # Removes a notification that was previously sent with the specified
   # ‘group’ ID, if one exists.
   #
-  # If no ‘group’ ID is given, all notifications are removed.
+  # If no ‘group’ ID is given, all notifications are removed. Scheduled
+  # notifications that have not fired yet are cancelled.
   # rubocop:disable Naming/PredicateMethod -- `remove` is the public API name
   def remove(group = 'ALL', verbose = false)
     TerminalNotifier.execute(verbose, remove: group)
@@ -221,15 +222,13 @@ module TerminalNotifier
 
   LIST_FIELDS = %i[group title subtitle message delivered_at].freeze
 
-  # Sentinels that list more than one notification, and so return an array.
   LIST_ALL = %w[ALL PENDING].freeze
 
   # If a ‘group’ ID is given, and a notification for that group exists,
   # returns a hash with details about the notification.
   #
   # If ‘ALL’ or ‘PENDING’ is given, an array of hashes. ‘PENDING’ lists the
-  # notifications scheduled with -in or -at that have not fired yet, and their
-  # :delivered_at is the time they are due.
+  # notifications not yet fired, whose :delivered_at is when they are due.
   #
   # If no information is available this will return `nil`.
   def list(group = 'ALL', verbose = false)

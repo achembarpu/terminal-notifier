@@ -821,6 +821,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 {
   UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
 
+  // Two stores, two queries. The callback must not run until both are swept,
+  // or `-remove X -message Y -group X` deletes what it just posted.
+  dispatch_group_t group = dispatch_group_create();
+
+  dispatch_group_enter(group);
   [center getDeliveredNotificationsWithCompletionHandler:^(NSArray<UNNotification *> *notifications) {
     NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
 
@@ -836,11 +841,32 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
     if (identifiers.count > 0) {
       [center removeDeliveredNotificationsWithIdentifiers:identifiers];
     }
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (completionHandler) completionHandler();
-    });
+    dispatch_group_leave(group);
   }];
+
+  dispatch_group_enter(group);
+  [center getPendingNotificationRequestsWithCompletionHandler:^(NSArray<UNNotificationRequest *> *requests) {
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
+
+    for (UNNotificationRequest *request in requests) {
+      NSString *pendingGroupID = request.content.userInfo[@"groupID"];
+      if ([@"ALL" isEqualToString:groupID] || [pendingGroupID isEqualToString:groupID]) {
+        NSDate *fireDate = TNNextTriggerDate(request.trigger);
+        fprintf(stderr, "* Cancelling scheduled notification, which was due on: %s\n",
+                [[(fireDate ?: [NSDate date]) description] UTF8String]);
+        [identifiers addObject:request.identifier];
+      }
+    }
+
+    if (identifiers.count > 0) {
+      [center removePendingNotificationRequestsWithIdentifiers:identifiers];
+    }
+    dispatch_group_leave(group);
+  }];
+
+  dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+    if (completionHandler) completionHandler();
+  });
 }
 
 - (void)listNotificationWithGroupID:(NSString *)listGroupID;
@@ -875,8 +901,7 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
   UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
 
   [center getPendingNotificationRequestsWithCompletionHandler:^(NSArray<UNNotificationRequest *> *requests) {
-    // The centre returns these in no useful order; soonest first is what
-    // anyone reading a schedule wants.
+    // The centre returns these in no useful order.
     NSArray<UNNotificationRequest *> *sorted =
       [requests sortedArrayUsingComparator:^NSComparisonResult(UNNotificationRequest *a,
                                                                UNNotificationRequest *b) {
