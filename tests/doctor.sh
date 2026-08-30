@@ -55,6 +55,7 @@ exits() { # exits <label> <expected status> <args...>
 }
 
 notifications() { "$BIN" -list ALL 2>/dev/null | tail -n +2 | grep -c . | tr -d ' '; }
+pending()       { "$BIN" -list PENDING 2>/dev/null | tail -n +2 | grep -c . | tr -d ' '; }
 clear_all()     { "$BIN" -remove ALL >/dev/null 2>&1; sleep 1; }
 # field <n> — nth tab separated column of the first listed notification
 field()         { "$BIN" -list ALL 2>/dev/null | tail -n +2 | head -1 | cut -f"$1"; }
@@ -217,6 +218,26 @@ else
   "$BIN" -message 'doctor: b' >/dev/null 2>&1; sleep 1
   "$BIN" -remove ALL >/dev/null 2>&1; sleep 1
   is "-remove ALL removes everything" "$(notifications)" "0"
+
+  # Scheduling. Far enough out that it never fires during the run.
+  clear_all
+  "$BIN" -message 'doctor: later' -group sched -in 1h >/dev/null 2>&1; sleep 1
+  is "-in does not deliver immediately"  "$(notifications)" "0"
+  is "-in shows up in -list PENDING"     "$(pending)" "1"
+  is "-list PENDING has a Scheduled For header" \
+     "$("$BIN" -list PENDING 2>/dev/null | head -1 | cut -f5)" "Scheduled For"
+  is "-list PENDING rows have 5 columns" \
+     "$("$BIN" -list PENDING 2>/dev/null | tail -n +2 | head -1 | awk -F'\t' '{print NF}')" "5"
+
+  "$BIN" -message 'doctor: at' -group sched2 -at '2027-03-04 05:06' >/dev/null 2>&1; sleep 1
+  is "-at is scheduled too" "$(pending)" "2"
+
+  # Posting to the same group drops the pending request, which is also how this
+  # check cleans up after itself.
+  "$BIN" -message 'doctor: replaced' -group sched  >/dev/null 2>&1
+  "$BIN" -message 'doctor: replaced' -group sched2 >/dev/null 2>&1; sleep 1
+  is "posting to the group replaces the scheduled one" "$(pending)" "0"
+  clear_all
 
   # -remove combined with -message must not race.
   clear_all

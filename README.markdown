@@ -136,6 +136,19 @@ build     Terminal              Finished in 42s   2026-08-23 10:22:16 +0000
 Tabs and newlines inside a field are replaced with spaces, so each notification
 is always exactly one row of five columns. An absent field is empty.
 
+Use `PENDING` for the notifications scheduled with [`-in`](#-in-duration) or
+[`-at`](#-at-time) that have not fired yet. The last column is when each one is
+due rather than when it was delivered:
+
+```
+$ terminal-notifier -list PENDING
+GroupID   Title      Subtitle   Message           Scheduled For
+backup    Terminal              Starting          2026-09-01 02:00:00 +0000
+```
+
+Soonest first. A scheduled notification appears here until it fires, and in
+`-list ALL` afterwards, never in both.
+
 ### Content
 
 #### `-title VALUE`

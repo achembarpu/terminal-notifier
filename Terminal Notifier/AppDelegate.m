@@ -129,6 +129,17 @@ static NSDate *TNNextTriggerDate(UNNotificationTrigger *trigger)
   return nil;
 }
 
+// Empty fields rather than "(null)", so the output stays parseable.
+static NSString *TNListRow(UNNotificationContent *content, NSString *lastColumn)
+{
+  return [NSString stringWithFormat:@"%@\t%@\t%@\t%@\t%@",
+          TNSanitizeField(content.userInfo[@"groupID"]),
+          TNSanitizeField(content.title),
+          TNSanitizeField(content.subtitle),
+          TNSanitizeField(content.body),
+          TNSanitizeField(lastColumn)];
+}
+
 static NSString *TNAuthorizationStatusName(UNAuthorizationStatus status)
 {
   switch (status) {
@@ -195,7 +206,8 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
          "       -message VALUE     The notification message.\n" \
          "       -remove ID         Removes a notification with the specified ‘group’ ID.\n" \
          "       -list ID           If the specified ‘group’ ID exists show when it was delivered,\n" \
-         "                          or use ‘ALL’ as ID to see all notifications.\n" \
+         "                          or use ‘ALL’ as ID to see all notifications, or ‘PENDING’\n" \
+         "                          for those scheduled with -in or -at that have not fired yet.\n" \
          "                          The output is a tab-separated list.\n"
          "\n" \
          "   Optional:\n" \
@@ -833,6 +845,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
 
 - (void)listNotificationWithGroupID:(NSString *)listGroupID;
 {
+  if ([@"PENDING" isEqualToString:listGroupID]) {
+    [self listPendingNotifications];
+    return;
+  }
+
   UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
 
   [center getDeliveredNotificationsWithCompletionHandler:^(NSArray<UNNotification *> *notifications) {
@@ -846,25 +863,49 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
         continue;
       }
 
-      // Empty fields rather than "(null)", so the output stays parseable.
-      [lines addObject:[NSString stringWithFormat:@"%@\t%@\t%@\t%@\t%@",
-                        TNSanitizeField(deliveredGroupID),
-                        TNSanitizeField(content.title),
-                        TNSanitizeField(content.subtitle),
-                        TNSanitizeField(content.body),
-                        TNSanitizeField([notification.date description])]];
+      [lines addObject:TNListRow(content, [notification.date description])];
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (lines.count > 0) {
-        printf("GroupID\tTitle\tSubtitle\tMessage\tDelivered At\n");
-        for (NSString *line in lines) {
-          printf("%s\n", [line UTF8String]);
-        }
-      }
-      exit(TNExitSuccess);
-    });
+    [self printListRows:lines lastColumn:@"Delivered At"];
   }];
+}
+
+- (void)listPendingNotifications;
+{
+  UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+
+  [center getPendingNotificationRequestsWithCompletionHandler:^(NSArray<UNNotificationRequest *> *requests) {
+    // The centre returns these in no useful order; soonest first is what
+    // anyone reading a schedule wants.
+    NSArray<UNNotificationRequest *> *sorted =
+      [requests sortedArrayUsingComparator:^NSComparisonResult(UNNotificationRequest *a,
+                                                               UNNotificationRequest *b) {
+        NSDate *left  = TNNextTriggerDate(a.trigger) ?: [NSDate distantFuture];
+        NSDate *right = TNNextTriggerDate(b.trigger) ?: [NSDate distantFuture];
+        return [left compare:right];
+      }];
+
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (UNNotificationRequest *request in sorted) {
+      NSDate *fireDate = TNNextTriggerDate(request.trigger);
+      [lines addObject:TNListRow(request.content, fireDate ? [fireDate description] : @"")];
+    }
+
+    [self printListRows:lines lastColumn:@"Scheduled For"];
+  }];
+}
+
+- (void)printListRows:(NSArray<NSString *> *)lines lastColumn:(NSString *)heading;
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (lines.count > 0) {
+      printf("GroupID\tTitle\tSubtitle\tMessage\t%s\n", [heading UTF8String]);
+      for (NSString *line in lines) {
+        printf("%s\n", [line UTF8String]);
+      }
+    }
+    exit(TNExitSuccess);
+  });
 }
 
 - (void)withdrawOnInterrupt:(NSString *)identifier;

@@ -272,6 +272,24 @@ RSpec.describe TerminalNotifier do
       )
       expect(described_class.list('g')[:delivered_at]).to be_nil
     end
+
+    it 'returns every row for PENDING, not just the first' do
+      allow(described_class).to receive(:execute).with(false, list: 'PENDING').and_return(
+        "GroupID\tTitle\tSubtitle\tMessage\tScheduled For\n" \
+        "backup\tTerminal\t\tStarting\t2026-09-01 02:00:00 +0000\n" \
+        "standup\tTerminal\t\tStandup\t2026-09-02 09:15:00 +0000"
+      )
+      expect(described_class.list('PENDING').map { |n| n[:group] }).to eq %w[backup standup]
+    end
+
+    it 'parses the scheduled time of a PENDING row into :delivered_at' do
+      allow(described_class).to receive(:execute).with(false, list: 'PENDING').and_return(
+        "GroupID\tTitle\tSubtitle\tMessage\tScheduled For\n" \
+        "backup\tTerminal\t\tStarting\t2026-09-01 02:00:00 +0000"
+      )
+      expect(described_class.list('PENDING').first[:delivered_at])
+        .to eq Time.parse('2026-09-01 02:00:00 +0000')
+    end
   end
 
   describe TerminalNotifier::CLI do

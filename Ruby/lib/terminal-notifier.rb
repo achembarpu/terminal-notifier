@@ -221,11 +221,15 @@ module TerminalNotifier
 
   LIST_FIELDS = %i[group title subtitle message delivered_at].freeze
 
+  # Sentinels that list more than one notification, and so return an array.
+  LIST_ALL = %w[ALL PENDING].freeze
+
   # If a ‘group’ ID is given, and a notification for that group exists,
   # returns a hash with details about the notification.
   #
-  # If no ‘group’ ID is given, an array of hashes describing all
-  # notifications.
+  # If ‘ALL’ or ‘PENDING’ is given, an array of hashes. ‘PENDING’ lists the
+  # notifications scheduled with -in or -at that have not fired yet, and their
+  # :delivered_at is the time they are due.
   #
   # If no information is available this will return `nil`.
   def list(group = 'ALL', verbose = false)
@@ -235,7 +239,7 @@ module TerminalNotifier
     # Drop the header row.
     notifications = output.split("\n")[1..].to_a.map { |line| TerminalNotifier.parse_list_row(line) }
 
-    group == 'ALL' ? notifications : notifications.first
+    LIST_ALL.include?(group) ? notifications : notifications.first
   end
   module_function :list
 
