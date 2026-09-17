@@ -310,7 +310,11 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
           [bundle bundleIdentifier]]];
       }
       if (settings.authorizationStatus == UNAuthorizationStatusNotDetermined) {
-        [problems addObject:@"Permission has never been requested. Send one notification and approve the prompt."];
+        [problems addObject:[NSString stringWithFormat:
+          @"Permission has never been requested. Send one notification and approve the prompt.\n"
+           "    If no prompt appears, launch the app bundle once:\n"
+           "      open -n \"%@\" --args -message \"Permission test\"",
+          [bundle bundlePath]]];
       }
       if (settings.alertSetting == UNNotificationSettingDisabled) {
         [problems addObject:@"Alerts are disabled, so nothing will be shown on screen."];
