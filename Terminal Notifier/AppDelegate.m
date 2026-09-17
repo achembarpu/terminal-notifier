@@ -628,6 +628,12 @@ static NSString *TNPreviewsName(UNShowPreviewsSetting setting)
           self.awaitingAuthorization = NO;
           if (error) {
             TNError(@"Could not request notification permission: %@", error.localizedDescription);
+            TNError(@"Run terminal-notifier -diagnose for details.");
+            TNError(@"If terminal-notifier does not appear in System Settings > Notifications,");
+            TNError(@"launch its app bundle once:");
+            TNError(@"  open -n \"%@\" --args -message \"Permission test\"",
+                    [[NSBundle mainBundle] bundlePath]);
+            TNError(@"Then allow notifications in System Settings > Notifications.");
             exit(TNExitNotAuthorized);
           }
           if (!granted) {
